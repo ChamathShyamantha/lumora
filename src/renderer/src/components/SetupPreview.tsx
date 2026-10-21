@@ -69,7 +69,7 @@ export function SetupPreview(props: Props) {
         ctx.fillStyle = 'rgba(18,21,30,0.92)'
         ctx.fill()
         ctx.lineWidth = 0.6
-        ctx.strokeStyle = props.selectedKey === d.key ? '#8b5cff' : 'rgba(255,255,255,0.08)'
+        ctx.strokeStyle = props.selectedKey === d.key ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.08)'
         if (props.selectedKey === d.key) ctx.lineWidth = 1.2
         ctx.stroke()
 
@@ -122,7 +122,7 @@ export function SetupPreview(props: Props) {
         ctx.restore()
 
         if (props.interactive && props.selectedKey === d.key) {
-          ctx.fillStyle = '#b89cff'
+          ctx.fillStyle = '#f4f4f6'
           ctx.font = '600 5px Segoe UI, sans-serif'
           ctx.textAlign = 'left'
           ctx.textBaseline = 'bottom'

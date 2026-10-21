@@ -1,11 +1,14 @@
 import { useApp } from '../store'
 import { Slider, ToggleField } from '../components/controls'
 import { AiSettings } from '../components/AiSettings'
+import { PowerSettings } from '../components/PowerSettings'
+import { UpdatesCard, useUpdateStatus } from '../components/Updates'
 import type { ShowToast } from '../components/Toast'
 import { IconFolder } from '../components/icons'
 
 export function Settings(props: { toast: ShowToast }) {
   const s = useApp()
+  const { version } = useUpdateStatus()
   return (
     <div className="view" style={{ maxWidth: 760 }}>
       <div className="view-head">
@@ -17,17 +20,16 @@ export function Settings(props: { toast: ShowToast }) {
       </div>
       <AiSettings toast={props.toast} />
       <div className="card stack">
-        <h2>App</h2>
+        <h2>Accessibility</h2>
         <ToggleField
-          label="Keep running in the tray when closed"
-          on={s.closeToTray}
-          hint="Your lights keep animating after you close the window. Quit from the tray icon."
-          onChange={(v) => {
-            s.setSettings({ closeToTray: v })
-            void window.lumora.app.setCloseToTray(v)
-          }}
+          label="Photosensitivity-safe mode"
+          on={s.safeMode}
+          onChange={(v) => s.setSettings({ safeMode: v })}
+          hint="Softens every flash and strobe — from any effect, AI-made effects and game reactions — so lights never flash more than about 2–3 times per second. Recommended if you or anyone nearby is sensitive to flashing light."
         />
       </div>
+      <PowerSettings />
+      <UpdatesCard />
       <div className="card stack">
         <h2>My effects</h2>
         <p className="small muted">
@@ -66,7 +68,7 @@ export function Settings(props: { toast: ShowToast }) {
         </div>
       </div>
       <p className="small faint" style={{ marginTop: 18 }}>
-        Lumora 0.1.0 · Free and open source (MIT). Every effect is free — forever.
+        Lumora {version} · Free and open source (MIT). Every effect is free — forever.
       </p>
     </div>
   )

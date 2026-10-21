@@ -181,6 +181,12 @@ export function defaultPlacement(def: DeviceDef, index: number): Placement {
   return { x: Math.round((320 - w) / 2) + jitter, y: Math.round((200 - h) / 2) + jitter, scale, rotation: 0, enabled: true }
 }
 
+/** Placement that fits the device to the whole 320x200 canvas (used when it runs its own effect). */
+export function fitPlacement(d: DeviceDef): Placement {
+  const scale = Math.min(304 / d.gridW, 184 / d.gridH)
+  return { x: (320 - d.gridW * scale) / 2, y: (200 - d.gridH * scale) / 2, scale, rotation: 0, enabled: true }
+}
+
 /** Canvas-space centre of every LED (x0,y0,x1,y1,…). */
 export function ledCanvasPoints(d: LayoutDevice): Float32Array {
   const pts = new Float32Array(d.leds.length * 2)

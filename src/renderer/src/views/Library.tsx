@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useApp, effectValues, type LibraryEffect } from '../store'
 import { thumbnails } from '../engine/thumbnails'
 import { PropControls } from '../components/PropControls'
+import { Slider } from '../components/controls'
 import { SetupPreview } from '../components/SetupPreview'
 import type { ShowToast } from '../components/Toast'
-import { IconCopy, IconDownload, IconEdit, IconFolder, IconStar, IconTrash, IconUpload, IconPlay, IconX, IconWand } from '../components/icons'
+import { IconGrid, IconMusic, IconMonitor, IconCopy, IconDownload, IconEdit, IconFolder, IconStar, IconTrash, IconUpload, IconPlay, IconX, IconWand } from '../components/icons'
 
 // ---------- taxonomy (matches docs/EFFECT_API.md) ----------
 
@@ -85,8 +86,16 @@ function EffectCard(props: { effect: LibraryEffect; active: boolean; favorite: b
         <span className="effect-name">{effect.meta.title}</span>
         <span className="effect-sub">
           {effect.source === 'user' && <span className="badge custom">Mine</span>}
-          {effect.meta.needsAudio && <span className="badge audio">♪ Music</span>}
-          {effect.meta.needsScreen && <span className="badge screen">▣ Screen</span>}
+          {effect.meta.needsAudio && (
+            <span className="badge audio">
+              <IconMusic /> Music
+            </span>
+          )}
+          {effect.meta.needsScreen && (
+            <span className="badge screen">
+              <IconMonitor /> Screen
+            </span>
+          )}
           {effect.meta.energy && <span className={`badge energy-${effect.meta.energy}`}>{effect.meta.energy}</span>}
         </span>
       </div>
@@ -94,9 +103,10 @@ function EffectCard(props: { effect: LibraryEffect; active: boolean; favorite: b
   )
 }
 
-function FilterButton(props: { on: boolean; onClick: () => void; label: string; count?: number; swatch?: string }) {
+function FilterButton(props: { on: boolean; onClick: () => void; label: string; count?: number; swatch?: string; icon?: ReactNode }) {
   return (
     <button className={`filter-item${props.on ? ' on' : ''}`} onClick={props.onClick}>
+      {props.icon}
       {props.swatch && <span className="filter-swatch" style={{ background: props.swatch }} />}
       <span className="filter-label">{props.label}</span>
       {props.count !== undefined && <span className="filter-count">{props.count}</span>}
@@ -111,6 +121,8 @@ export function Library(props: { toast: ShowToast }) {
   const activeId = useApp((s) => s.activeEffectId)
   const favorites = useApp((s) => s.favorites)
   const propValues = useApp((s) => s.propValues)
+  const effectBrightness = useApp((s) => s.effectBrightness)
+  const deviceEffects = useApp((s) => s.deviceEffects)
   const { setActiveEffect, toggleFavorite, setProp, resetProps, setEditing, setView } = useApp.getState()
 
   const [query, setQuery] = useState('')
@@ -191,12 +203,12 @@ export function Library(props: { toast: ShowToast }) {
     props.toast(`Now playing: ${pick.meta.title}`)
   }
 
-  const browseItems: { value: Browse; label: string; count: number }[] = [
-    { value: 'all', label: 'All effects', count: effects.filter((e) => matches(e, 'browse')).length },
-    { value: 'favorites', label: '★ Favourites', count: effects.filter((e) => matches(e, 'browse') && favorites.includes(e.id)).length },
-    { value: 'mine', label: 'My effects', count: effects.filter((e) => matches(e, 'browse') && e.source === 'user').length },
-    { value: 'music', label: '♪ Reacts to music', count: effects.filter((e) => matches(e, 'browse') && e.meta.needsAudio).length },
-    { value: 'screen', label: '▣ Screen sync', count: effects.filter((e) => matches(e, 'browse') && e.meta.needsScreen).length }
+  const browseItems: { value: Browse; label: string; icon: ReactNode; count: number }[] = [
+    { value: 'all', label: 'All effects', icon: <IconGrid />, count: effects.filter((e) => matches(e, 'browse')).length },
+    { value: 'favorites', label: 'Favourites', icon: <IconStar />, count: effects.filter((e) => matches(e, 'browse') && favorites.includes(e.id)).length },
+    { value: 'mine', label: 'My effects', icon: <IconEdit />, count: effects.filter((e) => matches(e, 'browse') && e.source === 'user').length },
+    { value: 'music', label: 'Reacts to music', icon: <IconMusic />, count: effects.filter((e) => matches(e, 'browse') && e.meta.needsAudio).length },
+    { value: 'screen', label: 'Screen sync', icon: <IconMonitor />, count: effects.filter((e) => matches(e, 'browse') && e.meta.needsScreen).length }
   ]
 
   return (
@@ -205,7 +217,7 @@ export function Library(props: { toast: ShowToast }) {
         <aside className="filter-rail">
           <div className="filter-group">
             {browseItems.map((b) => (
-              <FilterButton key={b.value} on={browse === b.value} onClick={() => setBrowse(b.value)} label={b.label} count={b.count} />
+              <FilterButton key={b.value} on={browse === b.value} onClick={() => setBrowse(b.value)} label={b.label} icon={b.icon} count={b.count} />
             ))}
           </div>
           <div className="filter-group">
@@ -256,8 +268,9 @@ export function Library(props: { toast: ShowToast }) {
             <span className="faint">
               {shown.length === effects.length ? `${effects.length} effects · all free` : `${shown.length} of ${effects.length}`}
             </span>
-            <div className="grow" />
-            <input className="input" placeholder="Search… e.g. fire, retro, calm" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 220 }} />
+          </div>
+          <div className="library-toolbar">
+            <input className="input" placeholder="Search… e.g. fire, retro, calm" value={query} onChange={(e) => setQuery(e.target.value)} />
             <select className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort">
               <option value="category">By category</option>
               <option value="name">A–Z</option>
@@ -348,14 +361,46 @@ export function Library(props: { toast: ShowToast }) {
             <div className="card stack">
               <div className="field-row">
                 <h3>Settings</h3>
-                {propValues[active.id] && (
-                  <button className="btn ghost sm" onClick={() => resetProps(active.id)}>
+                {(propValues[active.id] || effectBrightness[active.id] !== undefined) && (
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => {
+                      resetProps(active.id)
+                      useApp.getState().setEffectBrightness(active.id, 100)
+                    }}
+                  >
                     Reset
                   </button>
                 )}
               </div>
-              <PropControls props={active.meta.props} values={values} onChange={(name, v) => setProp(active.id, name, v)} />
+              <Slider
+                label="Brightness"
+                title="Brightness of this effect only — the top-bar slider dims everything"
+                value={effectBrightness[active.id] ?? 100}
+                min={0}
+                max={100}
+                suffix="%"
+                onChange={(v) => useApp.getState().setEffectBrightness(active.id, v)}
+              />
+              <PropControls
+                // The universal Brightness slider above replaces an effect's own 0–100 brightness control.
+                // Other effect-level "Brightness" controls are shown as "Intensity" so there's only one Brightness.
+                props={active.meta.props
+                  .filter((p) => !(p.name.toLowerCase() === 'brightness' && p.type === 'number' && p.min === 0 && p.max === 100))
+                  .map((p) => (p.label.trim().toLowerCase() === 'brightness' && !active.meta.props.some((q) => q.label.trim().toLowerCase() === 'intensity') ? { ...p, label: p.min < 0 ? 'Brightness offset' : 'Intensity' } : p))}
+                values={values}
+                onChange={(name, v) => setProp(active.id, name, v)}
+              />
             </div>
+            {Object.keys(deviceEffects).length > 0 && (
+              <p className="small faint">
+                {Object.keys(deviceEffects).length === 1 ? '1 device runs' : `${Object.keys(deviceEffects).length} devices run`} its own effect —{' '}
+                <a href="#" onClick={(e) => (e.preventDefault(), setView('layout'))}>
+                  change in Layout
+                </a>
+                .
+              </p>
+            )}
             {active.meta.needsAudio && (
               <p className="small faint">Reacts to whatever is playing on your PC. Adjust sensitivity in Devices → Inputs.</p>
             )}

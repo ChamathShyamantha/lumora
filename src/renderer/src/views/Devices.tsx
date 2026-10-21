@@ -4,6 +4,7 @@ import { lighting, type InputStatus } from '../engine/lighting'
 import { VIRTUAL_PRESETS, fromHardware } from '../engine/devices'
 import { Slider, Toggle, ToggleField } from '../components/controls'
 import { IconPlus, IconRefresh, IconTrash } from '../components/icons'
+import { ConflictsCard } from '../components/ConflictsCard'
 
 export function Devices() {
   const s = useApp()
@@ -32,6 +33,7 @@ export function Devices() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, alignItems: 'start' }}>
         <div className="stack">
+          <ConflictsCard />
           <div className="card stack">
             <div className="field-row">
               <h2>Hardware (OpenRGB)</h2>

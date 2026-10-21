@@ -58,6 +58,21 @@ export type AiResult =
   | { ok: true; data: unknown; model: string; usage: { input: number; output: number } }
   | { ok: false; error: string; code: string }
 
+export interface RunningConflict {
+  id: string
+  name: string
+  hint: string
+  custom: boolean
+  processes: { name: string; pid: number; system: boolean }[]
+}
+
+export type UpdateStatus =
+  | { state: 'dev' }
+  | { state: 'idle' | 'checking' | 'up-to-date'; checkedAt?: number }
+  | { state: 'downloading'; version: string; percent: number }
+  | { state: 'ready'; version: string }
+  | { state: 'error'; message: string }
+
 declare global {
   interface Window {
     lumora: {
@@ -82,7 +97,20 @@ declare global {
       capture: {
         screens(): Promise<{ id: string; name: string }[]>
         selectScreen(id: string | null): Promise<void>
+        snapshot(): Promise<string | null>
       }
+      system: {
+        runningApps(): Promise<string[]>
+        openTaskManager(): Promise<void>
+      }
+      conflicts: {
+        list(): Promise<RunningConflict[]>
+        recheck(): Promise<RunningConflict[]>
+        close(id: string, elevated: boolean): Promise<{ ok: boolean; needsAdmin: string[]; failed: string[] }>
+        configure(ignored: string[], extra: string[]): Promise<void>
+        onChanged(cb: (running: RunningConflict[]) => void): () => void
+      }
+      onNavigate(cb: (view: string) => void): () => void
       ai: {
         status(): Promise<AiStatus>
         setKey(conn: AiConnection, key: string): Promise<{ ok: true; models: string[] } | { ok: false; error: string }>
@@ -91,7 +119,24 @@ declare global {
         generate(req: AiRequest): Promise<AiResult>
         cancel(id: string): Promise<void>
       }
+      updates: {
+        version(): Promise<string>
+        status(): Promise<UpdateStatus>
+        check(): Promise<UpdateStatus>
+        install(): Promise<void>
+        onStatus(cb: (s: UpdateStatus) => void): () => void
+      }
+      tray: {
+        update(state: { scenes: { id: string; name: string }[]; lightsOff: boolean }): Promise<void>
+        onAction(cb: (a: { type: string; id?: string }) => void): () => void
+      }
+      power: {
+        configure(cfg: { offOnSleep: boolean; offOnLock: boolean; offOnExit: boolean }): Promise<void>
+        onState(cb: (state: { dark: boolean }) => void): () => void
+      }
       app: {
+        getAutostart(): Promise<{ supported: boolean; enabled: boolean; minimized: boolean }>
+        setAutostart(enabled: boolean, minimized: boolean): Promise<{ supported: boolean; enabled: boolean; minimized: boolean }>
         setCloseToTray(value: boolean): Promise<void>
         openExternal(url: string): Promise<void>
       }

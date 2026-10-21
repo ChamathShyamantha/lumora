@@ -38,3 +38,10 @@ export const IconRotate = (p: P) => base([<path key="a" d="M21 12a9 9 0 1 1-3-6.
 export const IconRefresh = IconRotate
 export const IconWand = (p: P) => base([<path key="a" d="m15 4 5 5L9 20l-5-5Z" />, <path key="b" d="M5 3v4M3 5h4M19 15v4M17 17h4" />], p)
 export const IconChat = (p: P) => base([<path key="a" d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />, <path key="b" d="M8.5 11h.01M12 11h.01M15.5 11h.01" />], p)
+export const IconGamepad = (p: P) => base([<path key="a" d="M6 11h4M8 9v4" />, <path key="b" d="M15 12h.01M18 10h.01" />, <path key="c" d="M17.3 5H6.7a4 4 0 0 0-4 3.6L2 15a3 3 0 0 0 5.4 2l1.3-2h6.6l1.3 2a3 3 0 0 0 5.4-2l-.7-6.4A4 4 0 0 0 17.3 5Z" />], p)
+export const IconAlert = (p: P) => base([<path key="a" d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />, <path key="b" d="M12 9v4M12 17h.01" />], p)
+export const IconCheck = (p: P) => base(<path d="M20 6 9 17l-5-5" />, p)
+export const IconExternal = (p: P) => base([<path key="a" d="M14 4h6v6" />, <path key="b" d="M20 4 10 14" />, <path key="c" d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />], p)
+export const IconGrid = (p: P) => base([<rect key="a" x="4" y="4" width="16" height="16" rx="2" />, <path key="b" d="M4 12h16M12 4v16" />], p)
+export const IconScenes = (p: P) => base([<rect key="a" x="3" y="4" width="8" height="7" rx="1.5" />, <rect key="b" x="13" y="4" width="8" height="7" rx="1.5" />, <rect key="c" x="3" y="13" width="8" height="7" rx="1.5" />, <path key="d" d="m15 14 5 2.5-5 2.5Z" />], p)
+export const IconPower = (p: P) => base([<path key="a" d="M12 3v9" />, <path key="b" d="M6.3 7.3a8 8 0 1 0 11.4 0" />], p)

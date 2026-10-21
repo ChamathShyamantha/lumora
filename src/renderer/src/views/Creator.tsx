@@ -305,7 +305,7 @@ export function Creator(props: { toast: ShowToast }) {
                 <span>
                   {layerType(l.type)?.name}
                   {l.blend !== 'normal' ? ` · ${BLEND_MODES.find((b) => b.value === l.blend)?.label}` : ''}
-                  {l.mods.length ? ' · ♪' : ''}
+                  {l.mods.length ? ' · music-linked' : ''}
                 </span>
               </span>
               <button className="btn sm icon" title="Move up" disabled={vi === 0} onClick={(e) => (e.stopPropagation(), move(l.id, 1))}>

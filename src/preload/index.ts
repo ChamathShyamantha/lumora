@@ -27,8 +27,21 @@ const api = {
   },
   capture: {
     screens: () => ipcRenderer.invoke('capture:screens'),
-    selectScreen: (id: string | null) => ipcRenderer.invoke('capture:selectScreen', id)
+    selectScreen: (id: string | null) => ipcRenderer.invoke('capture:selectScreen', id),
+    snapshot: () => ipcRenderer.invoke('capture:snapshot')
   },
+  system: {
+    runningApps: () => ipcRenderer.invoke('system:runningApps'),
+    openTaskManager: () => ipcRenderer.invoke('system:openTaskManager')
+  },
+  conflicts: {
+    list: () => ipcRenderer.invoke('conflicts:list'),
+    recheck: () => ipcRenderer.invoke('conflicts:recheck'),
+    close: (id: string, elevated: boolean) => ipcRenderer.invoke('conflicts:close', id, elevated),
+    configure: (ignored: string[], extra: string[]) => ipcRenderer.invoke('conflicts:configure', ignored, extra),
+    onChanged: (cb: (running: unknown) => void) => subscribe('conflicts:changed', cb)
+  },
+  onNavigate: (cb: (view: string) => void) => subscribe('navigate', cb),
   ai: {
     status: () => ipcRenderer.invoke('ai:status'),
     setKey: (conn: unknown, key: string) => ipcRenderer.invoke('ai:setKey', conn, key),
@@ -37,7 +50,24 @@ const api = {
     generate: (req: unknown) => ipcRenderer.invoke('ai:generate', req),
     cancel: (id: string) => ipcRenderer.invoke('ai:cancel', id)
   },
+  updates: {
+    version: () => ipcRenderer.invoke('app:version'),
+    status: () => ipcRenderer.invoke('update:status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onStatus: (cb: (s: unknown) => void) => subscribe('update:status', cb)
+  },
+  tray: {
+    update: (state: unknown) => ipcRenderer.invoke('tray:update', state),
+    onAction: (cb: (a: { type: string; id?: string }) => void) => subscribe('tray:action', cb)
+  },
+  power: {
+    configure: (cfg: unknown) => ipcRenderer.invoke('power:configure', cfg),
+    onState: (cb: (state: { dark: boolean }) => void) => subscribe('power:state', cb)
+  },
   app: {
+    getAutostart: () => ipcRenderer.invoke('app:getAutostart'),
+    setAutostart: (enabled: boolean, minimized: boolean) => ipcRenderer.invoke('app:setAutostart', enabled, minimized),
     setCloseToTray: (value: boolean) => ipcRenderer.invoke('app:setCloseToTray', value),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url)
   }

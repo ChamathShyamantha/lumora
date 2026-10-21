@@ -1,10 +1,12 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { EffectFile, HardwareDevice, OpenRgbStatus } from './types'
+import type { EffectFile, HardwareDevice, OpenRgbStatus, RunningConflict } from './types'
 import { parseEffectMeta, type EffectMeta, type PropValue } from './engine/effectMeta'
+import { DEFAULT_GAME_REACTIONS, type GameReactionsConfig } from './engine/gameReactions'
+import { OFF_SCENE_ID, newSceneId, type AutomationRule, type Scene } from './engine/scenes'
 import { createVirtual, defaultPlacement, fromHardware, type DeviceDef, type LayoutDevice, type Placement } from './engine/devices'
 
-export type View = 'library' | 'create' | 'code' | 'layout' | 'devices' | 'settings'
+export type View = 'library' | 'create' | 'code' | 'games' | 'scenes' | 'layout' | 'devices' | 'settings'
 
 export interface LibraryEffect extends EffectFile {
   meta: EffectMeta
@@ -15,6 +17,13 @@ interface PersistedState {
   propValues: Record<string, Record<string, PropValue>>
   favorites: string[]
   brightness: number
+  /** Per-effect brightness (0-100), keyed by effect id; missing = 100 */
+  effectBrightness: Record<string, number>
+  /** Device key → effect id for devices that run their own effect */
+  deviceEffects: Record<string, string>
+  scenes: Scene[]
+  rules: AutomationRule[]
+  automationEnabled: boolean
   virtualDevices: DeviceDef[]
   placements: Record<string, Placement>
   openrgbHost: string
@@ -23,8 +32,15 @@ interface PersistedState {
   audioSensitivity: number
   screenId: string | null
   closeToTray: boolean
+  lightsOffOnSleep: boolean
+  safeMode: boolean
+  lightsOffOnLock: boolean
+  lightsOffOnExit: boolean
   fps: number
   aiProvider: string
+  gameReactions: GameReactionsConfig
+  ignoredConflicts: string[]
+  extraConflictProcesses: string[]
   aiConfigs: Record<string, { baseUrl: string; model: string }>
 }
 
@@ -33,6 +49,12 @@ interface RuntimeState {
   effects: LibraryEffect[]
   hardware: HardwareDevice[]
   openrgbStatus: OpenRgbStatus
+  /** Other RGB software currently running (from the main process watcher) */
+  conflicts: RunningConflict[]
+  /** Lights switched off by the user or a "Lights off" scene */
+  lightsOff: boolean
+  /** Which automation rule is in control, and the user's setup from before it took over */
+  automation: { ruleId: string | null; snapshot: { effectId: string | null; brightness: number; deviceEffects: Record<string, string>; lightsOff: boolean } | null }
   /** Effect being edited (visual editor or code editor). */
   editing: { id?: string; html: string; mode: 'layers' | 'code'; openChat?: boolean } | null
 }
@@ -45,12 +67,21 @@ interface Actions {
   resetProps(effectId: string): void
   toggleFavorite(id: string): void
   setBrightness(v: number): void
+  setEffectBrightness(effectId: string, v: number): void
+  setDeviceEffect(deviceKey: string, effectId: string | null): void
   addVirtual(presetId: string): void
   removeDevice(key: string): void
   updatePlacement(key: string, patch: Partial<Placement>): void
   setHardware(status: OpenRgbStatus, devices: HardwareDevice[]): void
   setSettings(patch: Partial<PersistedState>): void
   setEditing(editing: RuntimeState['editing']): void
+  setConflicts(conflicts: RunningConflict[]): void
+  setLightsOff(off: boolean): void
+  saveScene(name: string): string
+  updateScene(id: string, patch: Partial<Scene>): void
+  deleteScene(id: string): void
+  applyScene(id: string): void
+  setRules(rules: AutomationRule[]): void
 }
 
 export type AppState = PersistedState & RuntimeState & Actions
@@ -64,6 +95,13 @@ export const useApp = create<AppState>()(
       propValues: {},
       favorites: [],
       brightness: 100,
+      effectBrightness: {},
+      deviceEffects: {},
+      scenes: [],
+      rules: [],
+      automationEnabled: true,
+      lightsOff: false,
+      automation: { ruleId: null, snapshot: null },
       virtualDevices: initialVirtual,
       placements: { [initialVirtual[0].key]: { ...defaultPlacement(initialVirtual[0], 0), x: 30, y: 40, scale: 17.3 } },
       openrgbHost: '127.0.0.1',
@@ -72,8 +110,16 @@ export const useApp = create<AppState>()(
       audioSensitivity: 1,
       screenId: null,
       closeToTray: true,
+      lightsOffOnSleep: true,
+      safeMode: false,
+      lightsOffOnLock: false,
+      lightsOffOnExit: true,
       fps: 60,
       aiProvider: 'anthropic',
+      gameReactions: DEFAULT_GAME_REACTIONS,
+      ignoredConflicts: [],
+      extraConflictProcesses: [],
+      conflicts: [],
       aiConfigs: {},
 
       view: 'library',
@@ -101,6 +147,20 @@ export const useApp = create<AppState>()(
       toggleFavorite: (id) =>
         set((s) => ({ favorites: s.favorites.includes(id) ? s.favorites.filter((f) => f !== id) : [...s.favorites, id] })),
       setBrightness: (brightness) => set({ brightness }),
+      setDeviceEffect: (deviceKey, effectId) =>
+        set((s) => {
+          const next = { ...s.deviceEffects }
+          if (effectId) next[deviceKey] = effectId
+          else delete next[deviceKey]
+          return { deviceEffects: next }
+        }),
+      setEffectBrightness: (effectId, v) =>
+        set((s) => {
+          const next = { ...s.effectBrightness }
+          if (v >= 100) delete next[effectId]
+          else next[effectId] = v
+          return { effectBrightness: next }
+        }),
       addVirtual: (presetId) => {
         const keys = get().virtualDevices.map((d) => d.key)
         const def = createVirtual(presetId, keys)
@@ -131,7 +191,33 @@ export const useApp = create<AppState>()(
           return { openrgbStatus, hardware, placements }
         }),
       setSettings: (patch) => set(patch),
-      setEditing: (editing) => set({ editing })
+      setEditing: (editing) => set({ editing }),
+      setConflicts: (conflicts) => set({ conflicts }),
+      setLightsOff: (lightsOff) => set({ lightsOff }),
+      saveScene: (name) => {
+        const s = get()
+        const id = newSceneId()
+        const scene: Scene = {
+          id,
+          name: name.trim() || 'Scene ' + (s.scenes.length + 1),
+          effectId: s.activeEffectId ?? 'builtin/Rainbow Wave.html',
+          brightness: s.brightness,
+          deviceEffects: { ...s.deviceEffects }
+        }
+        set({ scenes: [...s.scenes, scene] })
+        return id
+      },
+      updateScene: (id, patch) => set((s) => ({ scenes: s.scenes.map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
+      deleteScene: (id) =>
+        set((s) => ({ scenes: s.scenes.filter((x) => x.id !== id), rules: s.rules.filter((r) => r.sceneId !== id) })),
+      applyScene: (id) =>
+        set((s) => {
+          if (id === OFF_SCENE_ID) return { lightsOff: true }
+          const scene = s.scenes.find((x) => x.id === id)
+          if (!scene) return {}
+          return { activeEffectId: scene.effectId, brightness: scene.brightness, deviceEffects: { ...scene.deviceEffects }, lightsOff: false }
+        }),
+      setRules: (rules) => set({ rules })
     }),
     {
       name: 'lumora-state',
@@ -141,6 +227,11 @@ export const useApp = create<AppState>()(
         propValues: s.propValues,
         favorites: s.favorites,
         brightness: s.brightness,
+        effectBrightness: s.effectBrightness,
+        deviceEffects: s.deviceEffects,
+        scenes: s.scenes,
+        rules: s.rules,
+        automationEnabled: s.automationEnabled,
         virtualDevices: s.virtualDevices,
         placements: s.placements,
         openrgbHost: s.openrgbHost,
@@ -149,8 +240,15 @@ export const useApp = create<AppState>()(
         audioSensitivity: s.audioSensitivity,
         screenId: s.screenId,
         closeToTray: s.closeToTray,
+        lightsOffOnSleep: s.lightsOffOnSleep,
+        safeMode: s.safeMode,
+        lightsOffOnLock: s.lightsOffOnLock,
+        lightsOffOnExit: s.lightsOffOnExit,
         fps: s.fps,
         aiProvider: s.aiProvider,
+        gameReactions: s.gameReactions,
+        ignoredConflicts: s.ignoredConflicts,
+        extraConflictProcesses: s.extraConflictProcesses,
         aiConfigs: s.aiConfigs
       })
     }

@@ -11,6 +11,18 @@ export function LayoutView() {
   const devices = useMemo(() => selectLayout(state), [state])
   const updatePlacement = useApp((s) => s.updatePlacement)
   const setView = useApp((s) => s.setView)
+  const effects = useApp((s) => s.effects)
+  const deviceEffects = useApp((s) => s.deviceEffects)
+  const setDeviceEffect = useApp((s) => s.setDeviceEffect)
+  const effectName = (id: string | undefined): string | null => (id ? (effects.find((e) => e.id === id)?.meta.title ?? null) : null)
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof effects>()
+    for (const e of effects) {
+      const cat = e.meta.category || (e.source === 'user' ? 'My Creations' : 'Other')
+      map.set(cat, [...(map.get(cat) ?? []), e])
+    }
+    return [...map.entries()]
+  }, [effects])
   const [selectedKey, setSelectedKey] = useState<string | null>(devices[0]?.key ?? null)
   const [showFrame, setShowFrame] = useState(true)
   const selected = devices.find((d) => d.key === selectedKey)
@@ -62,7 +74,7 @@ export function LayoutView() {
               <div className="grow">
                 <div className="name">{d.name}</div>
                 <div className="small faint">
-                  {d.leds.length} LEDs · {d.source === 'virtual' ? 'virtual preview' : 'OpenRGB'}
+                  {d.leds.length} LEDs · {effectName(deviceEffects[d.key]) ?? 'main effect'}
                 </div>
               </div>
             </div>
@@ -77,6 +89,30 @@ export function LayoutView() {
           <div className="card stack">
             <h3>{selected.name}</h3>
             <ToggleField label="Enabled" on={selected.enabled} onChange={(v) => updatePlacement(selected.key, { enabled: v })} />
+            <label className="field">
+              <span className="field-label">Effect</span>
+              <select
+                className="select"
+                value={deviceEffects[selected.key] ?? ''}
+                onChange={(e) => setDeviceEffect(selected.key, e.target.value || null)}
+              >
+                <option value="">Same as main effect</option>
+                {grouped.map(([cat, list]) => (
+                  <optgroup key={cat} label={cat}>
+                    {list.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.meta.title}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <span className="small faint">
+                {deviceEffects[selected.key]
+                  ? 'This device runs its own effect, filling the whole effect on this device (its position on the canvas no longer matters). Settings and brightness are the ones you set for that effect in Effects.'
+                  : 'Follows whatever you play in Effects.'}
+              </span>
+            </label>
             <Slider label="Size" value={selected.scale} min={1} max={60} step={0.1} onChange={(v) => updatePlacement(selected.key, { scale: v })} />
             <Slider label="Rotation" value={selected.rotation} min={-180} max={180} suffix="°" onChange={(v) => updatePlacement(selected.key, { rotation: v })} />
             <Slider label="Left" value={selected.x} min={-100} max={320} onChange={(v) => updatePlacement(selected.key, { x: v })} />

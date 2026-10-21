@@ -123,6 +123,7 @@ export class OpenRgbManager {
 
   /** `rgb` is packed [r,g,b, r,g,b, ...] for every LED of the device. */
   update(deviceId: number, rgb: Uint8Array): void {
+    if (this.paused) return
     const client = this.client
     if (!client?.isConnected) return
     const device = this.devices.find((d) => d.id === deviceId)
@@ -143,6 +144,29 @@ export class OpenRgbManager {
       client.updateLeds(deviceId, buf)
     } catch {
       /* transient socket errors surface via disconnect */
+    }
+  }
+
+  /** While paused (PC asleep/locked), frames from the renderer are ignored. */
+  private paused = false
+
+  setPaused(paused: boolean): void {
+    this.paused = paused
+  }
+
+  /** Turn every LED off right now (sleep, lock, quit). */
+  blackout(): void {
+    const client = this.client
+    if (!client?.isConnected) return
+    for (const d of this.devices) {
+      try {
+        client.updateLeds(
+          d.id,
+          Array.from({ length: d.ledCount }, () => ({ red: 0, green: 0, blue: 0 }))
+        )
+      } catch {
+        /* ignore */
+      }
     }
   }
 

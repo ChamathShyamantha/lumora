@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { selectLayout, useApp } from '../store'
 import { buildChatPrompt, CHAT_LINKS, extractHtmlFromReply } from '../engine/chatPrompt'
-import { IconCopy, IconX } from './icons'
+import { IconCopy, IconExternal, IconX } from './icons'
 
 /**
  * "Use any AI chat": copy a ready-made prompt (effect API + the user's devices)
@@ -86,7 +86,7 @@ export function ChatPromptPanel(props: { currentHtml?: string; onLoad: (html: st
               <span className="small faint">Open:</span>
               {CHAT_LINKS.map((c) => (
                 <button key={c.name} className="btn sm ghost" onClick={() => window.lumora.app.openExternal(c.url)}>
-                  {c.name} ↗
+                  {c.name} <IconExternal />
                 </button>
               ))}
             </div>

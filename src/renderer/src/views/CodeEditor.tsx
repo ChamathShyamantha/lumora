@@ -253,7 +253,7 @@ export function CodeEditor(props: { toast: ShowToast }) {
           <div className="card stack" style={{ gap: 8 }}>
             {REFERENCE.map(([k, v]) => (
               <div key={k} className="stack" style={{ gap: 2 }}>
-                <code className="small" style={{ color: '#b89cff' }}>
+                <code className="small" style={{ color: 'var(--ink)' }}>
                   {k}
                 </code>
                 <span className="small faint">{v}</span>

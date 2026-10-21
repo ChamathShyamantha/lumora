@@ -82,7 +82,7 @@ export function AiSettings(props: { toast: ShowToast }) {
           {AI_PROVIDERS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
-              {status?.keys[p.id] ? '  ✓' : ''}
+              {status?.keys[p.id] ? ' — key saved' : ''}
             </option>
           ))}
         </select>
