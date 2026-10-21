@@ -2,6 +2,11 @@
 
 Static site (no build step) for downloading Lumora. Plain HTML/CSS/JS.
 
+**Design:** follows the app's [`../DESIGN.md`](../DESIGN.md) (after Raycast's dark
+system from awesome-design-md). Colour belongs to the lights: saturated colour only
+in the setup scene, effect previews and LED glyphs. Chrome stays monochrome, with one
+white primary button per view, hairline borders, no gradients or glows, and no emoji.
+
 ## Deploy on Vercel
 
 1. In Vercel: **Add New → Project → Import** the `lumora` GitHub repo.

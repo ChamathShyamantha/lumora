@@ -32,7 +32,7 @@
     kofiBtn.hidden = true
     var soon = $('[data-kofi-soon]')
     soon.hidden = false
-    soon.innerHTML = 'Ko-fi page coming soon — meanwhile, a ⭐ on <a href="' + (cfg.githubUrl || '#') + '" target="_blank" rel="noopener">GitHub</a> helps too!'
+    soon.innerHTML = 'Ko-fi page coming soon. Until then, starring the project on <a href="' + (cfg.githubUrl || '#') + '" target="_blank" rel="noopener">GitHub</a> helps.'
   }
   $('#year').textContent = new Date().getFullYear()
 
@@ -125,9 +125,9 @@
   function select(fx) {
     current = fx
     scene.setEffect(fx)
-    $$('.effect-switch button').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.fx === fx)) })
+    $$('.stage [data-fx]').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.fx === fx)) })
   }
-  $$('.effect-switch button').forEach(function (b) {
+  $$('.stage [data-fx]').forEach(function (b) {
     b.addEventListener('click', function () { userPicked = true; select(b.dataset.fx) })
   })
   select(current)
@@ -143,8 +143,8 @@
   toggle($('#canvasBtn'), function (on) {
     scene.setReveal(on)
     $('#stageHint').textContent = on
-      ? 'This is Lumora’s effect canvas — every LED in your setup samples the colour under it ✦'
-      : 'Hover a device · move across the setup to send light ripples ✦'
+      ? 'This grid is Lumora’s effect canvas. Each dot is an LED, and it takes the colour underneath it.'
+      : 'Hover a device to see what it is. Move across the setup to send a ripple of light.'
   })
 
   function drawHero(now) {
@@ -161,7 +161,7 @@
   var demos = [
     {
       text: 'Slow purple waves that punch with the bass',
-      layers: [['Wave', 'linear-gradient(90deg,#8b5cff,#1a0636)', 'Normal'], ['Pulse', 'radial-gradient(circle,#fff,#b040ff 45%,#000 80%)', '♪ Bass'], ['Sparkles', 'radial-gradient(circle,#fff 0 3px,transparent 4px) 0 0/12px 12px,#160a2c', 'Add']],
+      layers: [['Wave', 'linear-gradient(90deg,#8b5cff,#1a0636)', 'Normal'], ['Pulse', 'radial-gradient(circle,#fff,#b040ff 45%,#000 80%)', 'Bass'], ['Sparkles', 'radial-gradient(circle,#fff 0 3px,transparent 4px) 0 0/12px 12px,#160a2c', 'Add']],
       fx: function (x, y, t) {
         var beat = Math.exp(-((t % 0.6) / 0.6) * 5)
         var w = 0.5 + 0.5 * Math.sin(x * 0.35 - t * 1.4 + y * 0.2)
@@ -180,7 +180,7 @@
     },
     {
       text: 'Cyberpunk neon rain in pink and cyan',
-      layers: [['Gradient', 'linear-gradient(90deg,#ff2d95,#7a3cff,#00e5ff)', 'Normal'], ['Digital rain', 'repeating-linear-gradient(90deg,#0ff 0 2px,transparent 2px 8px),#050510', 'Screen'], ['Glow', 'radial-gradient(circle,#ff2d95,#000 75%)', '♪ Beat']],
+      layers: [['Gradient', 'linear-gradient(90deg,#ff2d95,#7a3cff,#00e5ff)', 'Normal'], ['Digital rain', 'repeating-linear-gradient(90deg,#0ff 0 2px,transparent 2px 8px),#050510', 'Screen'], ['Glow', 'radial-gradient(circle,#ff2d95,#000 75%)', 'Beat']],
       fx: function (x, y, t) {
         var base = mix([255, 45, 149], [0, 229, 255], x / 32)
         var col = (x * 7.3) % 1
@@ -297,14 +297,18 @@
           card.style.animationDelay = Math.min(n * 25, 600) + 'ms'
           card.innerHTML =
             '<img alt="" loading="lazy" width="320" height="200" />' +
-            '<figcaption class="fx-info"><b></b><span></span></figcaption>' +
             '<div class="fx-desc"></div>' +
-            (e.music ? '<span class="fx-badge">♪ Music</span>' : e.screen ? '<span class="fx-badge">▣ Screen</span>' : '')
+            '<figcaption><b></b><span></span></figcaption>' +
+            (e.music
+              ? '<span class="fx-badge"><svg class="ico"><use href="#i-music" /></svg>Music</span>'
+              : e.screen
+                ? '<span class="fx-badge">Screen</span>'
+                : '')
           var img = card.querySelector('img')
           img.src = '/assets/effects/' + e.slug + '.png'
           img.alt = e.title + ' effect preview'
           card.querySelector('b').textContent = e.title
-          card.querySelector('.fx-info span').textContent = e.category + ' · ' + e.energy
+          card.querySelector('figcaption span').textContent = e.category
           card.querySelector('.fx-desc').textContent = e.description
           gallery.appendChild(card)
         })
@@ -314,7 +318,7 @@
       b.setAttribute('role', 'tab')
       b.dataset.cat = c
       var count = c === 'All' ? list.length : list.filter(function (e) { return e.category === c }).length
-      b.innerHTML = '<span class="label"></span><span></span>'
+      b.innerHTML = '<span class="label"></span><span class="count"></span>'
       b.querySelector('.label').textContent = c
       b.lastChild.textContent = count
       b.addEventListener('click', function () { show(c) })
@@ -330,7 +334,7 @@
         if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target) }
       })
     }, { threshold: 0.12 })
-    $$('.section-head, .feature, .create-copy, .prompt-demo, .compare-col, .download-card, .maker, .kofi').forEach(function (el) {
+    $$('.section-head, .card, .dev, .create-copy, .prompt-demo').forEach(function (el) {
       el.classList.add('reveal')
       io.observe(el)
     })

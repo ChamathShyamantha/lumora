@@ -246,7 +246,7 @@
       rr(ctx, 158, 68, 394, 224, 6); ctx.fill()
       // a tiny Lumora UI on screen: effect tiles coloured live
       ctx.fillStyle = 'rgba(255,255,255,0.75)'
-      ctx.font = '600 11px Sora, sans-serif'
+      ctx.font = '600 11px Inter, sans-serif'
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
       ctx.fillText('Lumora', 188, 86)
       ctx.beginPath(); ctx.arc(178, 86, 5, 0, Math.PI * 2); ctx.strokeStyle = css(hsl(t * 60, 90, 60)); ctx.lineWidth = 2.2; ctx.stroke()
@@ -337,7 +337,7 @@
         ctx.strokeStyle = css(colors[10][gi]); ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke()
       }
       ctx.fillStyle = css(colors[10][14])
-      ctx.font = '700 10px Sora, sans-serif'; ctx.textAlign = 'center'
+      ctx.font = '700 10px Inter, sans-serif'; ctx.textAlign = 'center'
       ctx.fillText('LUMORA', 874, 319)
       dots(11, 3)
       ctx.lineCap = 'butt'

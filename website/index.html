@@ -3,76 +3,96 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Lumora — Free RGB lighting studio for Windows</title>
+    <title>Lumora — RGB lighting that's actually free</title>
     <meta
       name="description"
-      content="Lumora is a free RGB lighting studio for Windows: 70 hand-crafted effects, a no-code effect creator, AI effect design, music and screen sync. No subscription, no paywall."
+      content="Lumora is a free RGB lighting studio for Windows. 70 effects, a visual creator and an AI designer for every LED in your setup. No subscription, no premium tier, no account."
     />
-    <meta name="theme-color" content="#07080c" />
-    <meta property="og:title" content="Lumora — Paint your setup with light" />
-    <meta property="og:description" content="70 free RGB effects, a no-code creator and AI design. No subscription. Ever." />
+    <meta name="theme-color" content="#07080a" />
+    <meta property="og:title" content="Lumora — RGB lighting that's actually free" />
+    <meta property="og:description" content="70 effects, a visual creator and an AI designer for every LED in your setup. No subscription. No premium tier. No account." />
     <meta property="og:image" content="/assets/og.png" />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/config.js"></script>
     <script src="/scene.js" defer></script>
     <script src="/main.js" defer></script>
   </head>
   <body>
-    <div class="aura" aria-hidden="true"></div>
+    <!-- line icon set (1.8px stroke) -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.4 1.2L21 21v-8.4h-9.6zm0-15.4v7.2H21V3z" /></symbol>
+        <symbol id="i-github" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z" /></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></symbol>
+        <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></symbol>
+        <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="17" cy="16" r="3" /></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18M15 3v18" /></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Z" /><path d="m2 13 10 5 10-5" /><path d="m2 17.5 10 5 10-5" /></symbol>
+        <symbol id="i-wand" viewBox="0 0 24 24"><path d="m15 4 5 5L9 20l-5-5Z" /><path d="M5 3v4M3 5h4M19 15v4M17 17h4" /></symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" /></symbol>
+        <symbol id="i-library" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></symbol>
+        <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M4 9h12v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" /><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16" /><path d="M8 3v3M12 3v3" /></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6Z" /><path d="m8.5 12 2.5 2.5L15.5 10" /></symbol>
+      </defs>
+    </svg>
 
     <header class="nav">
       <a class="brand" href="#top" aria-label="Lumora home">
-        <img src="/assets/icon.png" alt="" width="30" height="30" />
+        <img src="/assets/icon.png" alt="" width="26" height="26" />
         <span>Lumora</span>
       </a>
       <nav class="nav-links" aria-label="Main">
         <a href="#devices">Devices</a>
         <a href="#features">Features</a>
         <a href="#effects">Effects</a>
-        <a href="#create">Create</a>
+        <a href="#pricing">Pricing</a>
         <a href="#support">Support</a>
       </nav>
-      <a class="btn btn-small btn-glow" data-download href="#download">Download</a>
+      <a class="btn btn-primary btn-sm" data-download href="#download">Download</a>
     </header>
 
     <main id="top">
       <!-- ───────── Hero ───────── -->
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="pulse-dot"></span> Free RGB studio for your whole setup</p>
-          <h1>Paint your setup <span class="spectrum-text">with light.</span></h1>
+          <p class="eyebrow">RGB lighting studio for Windows</p>
+          <h1>RGB lighting that's<br />actually free.</h1>
           <p class="lede">
-            Fans, RAM, GPU, strips, keyboard, mouse, monitor — one effect flowing across every LED you own.
-            70 hand-crafted effects, a no-code creator and an AI that designs lighting from a sentence.
-            <strong>No account. No subscription. No paywall.</strong>
+            Every effect, the visual creator and the AI designer, for every LED in your setup. No subscription, no premium tier,
+            no account. Not now, not later.
           </p>
           <div class="cta-row">
-            <a class="btn btn-glow btn-big" data-download href="#download">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.4 1.2L21 21v-8.4h-9.6zm0-15.4v7.2H21V3z" /></svg>
+            <a class="btn btn-primary btn-lg" data-download href="#download">
+              <svg class="ico"><use href="#i-windows" /></svg>
               Download for Windows
             </a>
-            <a class="btn btn-ghost btn-big" href="#effects">See all 70 effects</a>
+            <a class="btn btn-tertiary btn-lg" href="#effects">Browse 70 effects</a>
           </div>
-          <p class="fine" data-meta>Windows 10 &amp; 11 · 64-bit · Free forever</p>
+          <ul class="free-strip" aria-label="What free means">
+            <li><svg class="ico"><use href="#i-check" /></svg>No subscription</li>
+            <li><svg class="ico"><use href="#i-check" /></svg>No locked effects</li>
+            <li><svg class="ico"><use href="#i-check" /></svg>No account</li>
+          </ul>
+          <p class="caption" data-meta>v0.1.0 · Windows 10 &amp; 11 · 109 MB</p>
         </div>
 
         <div class="stage" id="stage">
           <div class="scene-wrap" id="sceneWrap">
             <canvas class="scene-glow" id="sceneGlow" aria-hidden="true"></canvas>
-            <canvas class="scene" id="scene" role="img" aria-label="A full RGB PC setup — case fans, RAM, GPU, LED strips, monitor backlight, keyboard, mouse and mousepad — all animating one Lumora effect in sync"></canvas>
+            <canvas class="scene" id="scene" role="img" aria-label="A full RGB PC setup — case fans, RAM, GPU, LED strips, monitor backlight, keyboard, mouse and mousepad — all running one Lumora effect in sync"></canvas>
             <div class="scene-tip" id="sceneTip" hidden></div>
-            <div class="scene-hud">
-              <span class="live-dot"></span><span id="hudText">11 devices · 0 LEDs in sync</span>
-            </div>
+            <div class="scene-hud"><span class="live-dot"></span><span id="hudText">12 devices in sync</span></div>
           </div>
           <div class="stage-controls">
-            <div class="effect-switch" role="tablist" aria-label="Try an effect">
+            <div class="pill-tabs" role="tablist" aria-label="Try an effect">
               <button role="tab" data-fx="rainbow">Rainbow Wave</button>
               <button role="tab" data-fx="aurora">Aurora</button>
               <button role="tab" data-fx="synthwave">Synthwave</button>
@@ -80,12 +100,13 @@
               <button role="tab" data-fx="fireflies">Firefly Sync</button>
               <button role="tab" data-fx="ocean">Bioluminescence</button>
             </div>
+            <span class="divider" aria-hidden="true"></span>
             <div class="toggles">
-              <button class="toggle-btn" id="musicBtn" aria-pressed="false">♪ Music sync</button>
-              <button class="toggle-btn" id="canvasBtn" aria-pressed="false">◎ How it works</button>
+              <button class="switch-btn" id="musicBtn" aria-pressed="false"><svg class="ico"><use href="#i-music" /></svg>Music sync</button>
+              <button class="switch-btn" id="canvasBtn" aria-pressed="false"><svg class="ico"><use href="#i-grid" /></svg>How it works</button>
             </div>
           </div>
-          <p class="stage-hint" id="stageHint">Hover a device · move across the setup to send light ripples ✦</p>
+          <p class="caption" id="stageHint">Hover a device to see what it is. Move across the setup to send a ripple of light.</p>
         </div>
       </section>
 
@@ -98,26 +119,26 @@
       <!-- ───────── Devices ───────── -->
       <section class="section" id="devices">
         <div class="section-head">
-          <p class="eyebrow">One effect. Every device.</p>
-          <h2>If it glows, <span class="spectrum-text">Lumora runs it.</span></h2>
+          <p class="eyebrow">One effect, every device</p>
+          <h2>If it glows, Lumora runs it.</h2>
           <p class="sub">
-            Lumora places every LED in your setup on one shared canvas, so effects flow across devices — a wave starts on your fans,
-            rolls over your keyboard and lands on your mousepad. Hardware support comes from the open-source OpenRGB project.
+            Every LED in your setup sits on one shared canvas, so a wave can start on your fans, roll across your keyboard and land on
+            your mousepad. Hardware support comes from the open-source OpenRGB project.
           </p>
         </div>
-        <div class="device-grid" id="deviceGrid">
-          <div class="dev"><i class="d-ico fan"></i><b>Case fans</b><span>Front, rear, top — every ring</span></div>
+        <div class="device-grid">
+          <div class="dev"><i class="d-ico fan"></i><b>Case fans</b><span>Front, rear and top rings</span></div>
           <div class="dev"><i class="d-ico ram"></i><b>RAM</b><span>Every stick, every LED</span></div>
-          <div class="dev"><i class="d-ico gpu"></i><b>Graphics cards</b><span>Light bars &amp; logos</span></div>
-          <div class="dev"><i class="d-ico mobo"></i><b>Motherboards</b><span>Onboard zones &amp; headers</span></div>
-          <div class="dev"><i class="d-ico aio"></i><b>AIO coolers</b><span>Pumps &amp; radiator fans</span></div>
+          <div class="dev"><i class="d-ico gpu"></i><b>Graphics cards</b><span>Light bars and logos</span></div>
+          <div class="dev"><i class="d-ico mobo"></i><b>Motherboards</b><span>Onboard zones and headers</span></div>
+          <div class="dev"><i class="d-ico aio"></i><b>AIO coolers</b><span>Pumps and radiator fans</span></div>
           <div class="dev"><i class="d-ico strip"></i><b>LED strips</b><span>Addressable ARGB</span></div>
           <div class="dev"><i class="d-ico kb"></i><b>Keyboards</b><span>Per-key lighting</span></div>
-          <div class="dev"><i class="d-ico mouse"></i><b>Mice &amp; mousepads</b><span>Logos, wheels, edges</span></div>
-          <div class="dev"><i class="d-ico headset"></i><b>Headsets &amp; stands</b><span>Ear cups to bases</span></div>
-          <div class="dev"><i class="d-ico monitor"></i><b>Monitor backlights</b><span>Screen-synced ambience</span></div>
+          <div class="dev"><i class="d-ico mouse"></i><b>Mice and mousepads</b><span>Logos, wheels and edges</span></div>
+          <div class="dev"><i class="d-ico headset"></i><b>Headsets and stands</b><span>Ear cups to bases</span></div>
+          <div class="dev"><i class="d-ico monitor"></i><b>Monitor backlights</b><span>Follow what's on screen</span></div>
           <div class="dev"><i class="d-ico bulb"></i><b>Smart lights</b><span>Room lighting via OpenRGB</span></div>
-          <div class="dev"><i class="d-ico virtual"></i><b>Virtual devices</b><span>Design on any PC, no RGB needed</span></div>
+          <div class="dev"><i class="d-ico virtual"></i><b>Virtual devices</b><span>Design without any RGB hardware</span></div>
         </div>
       </section>
 
@@ -125,38 +146,38 @@
       <section class="section" id="features">
         <div class="section-head">
           <p class="eyebrow">Everything included</p>
-          <h2>All the good stuff. <span class="muted">None of it locked.</span></h2>
+          <h2>The whole app. Nothing held back.</h2>
         </div>
         <div class="features">
-          <article class="feature">
-            <div class="f-icon" style="--c1: #ff3ea5; --c2: #8b5cff">✦</div>
-            <h3>70 free effects</h3>
-            <p>Fireflies that learn to blink in sync, a black hole, a self-playing Snake game, a Pomodoro timer, a sunrise that follows the real clock — every one included.</p>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-library" /></svg></span>
+            <h3>70 effects</h3>
+            <p>Fireflies that slowly fall into sync, a black hole, a Snake game that plays itself, a Pomodoro timer, a sunrise that follows your clock.</p>
           </article>
-          <article class="feature">
-            <div class="f-icon" style="--c1: #8b5cff; --c2: #21d4fd">◈</div>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-layers" /></svg></span>
             <h3>Visual Creator</h3>
-            <p>Stack layers — waves, plasma, fire, sparkles, ripples — blend them, then link any slider to bass, beats or volume. No code, live preview on your devices.</p>
+            <p>Stack layers like waves, plasma, fire and sparkles, blend them, and link any slider to the bass or the beat. No code.</p>
           </article>
-          <article class="feature">
-            <div class="f-icon" style="--c1: #21d4fd; --c2: #3ddc97">✎</div>
-            <h3>Describe it, AI builds it</h3>
-            <p>“Slow purple waves that punch with the bass.” Works with Claude, ChatGPT, Gemini, OpenRouter — or a free local model with Ollama.</p>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-wand" /></svg></span>
+            <h3>AI designer</h3>
+            <p>Describe an effect in a sentence and get editable layers back. Works with Claude, ChatGPT, Gemini, OpenRouter, or a local model in Ollama.</p>
           </article>
-          <article class="feature">
-            <div class="f-icon" style="--c1: #3ddc97; --c2: #ffb547">⌘</div>
-            <h3>No API key? No problem</h3>
-            <p>Lumora writes a ready-made prompt with your devices in it. Paste it into any AI chat, paste the reply back — your effect is running.</p>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-chat" /></svg></span>
+            <h3>No API key needed</h3>
+            <p>Lumora writes a prompt that already knows your devices. Paste it into any AI chat, paste the reply back, and it runs.</p>
           </article>
-          <article class="feature">
-            <div class="f-icon" style="--c1: #ffb547; --c2: #ff3ea5">♪</div>
-            <h3>Music &amp; screen sync</h3>
-            <p>Effects react to whatever’s playing on your PC — beats, bass and full spectrum — or mirror your screen for games and movies.</p>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-music" /></svg></span>
+            <h3>Music and screen sync</h3>
+            <p>Effects react to whatever is playing on your PC, or mirror your screen for games and films.</p>
           </article>
-          <article class="feature">
-            <div class="f-icon" style="--c1: #ff5d6c; --c2: #8b5cff">⬢</div>
-            <h3>Thousands of devices</h3>
-            <p>Keyboards, mice, RAM, motherboards, fans and strips through free, open-source OpenRGB — plus virtual devices to design on any laptop.</p>
+          <article class="card">
+            <span class="tile"><svg class="ico"><use href="#i-shield" /></svg></span>
+            <h3>Safe to share</h3>
+            <p>Effects are plain files that run in a sandbox with no network and no access to your PC. Send one to a friend, import theirs.</p>
           </article>
         </div>
       </section>
@@ -165,10 +186,10 @@
       <section class="section" id="effects">
         <div class="section-head">
           <p class="eyebrow">The library</p>
-          <h2><span id="fxCount">70</span> effects. <span class="spectrum-text">All free.</span></h2>
-          <p class="sub">Real previews, rendered straight from the app. Filter by mood, then lose an hour.</p>
+          <h2><span id="fxCount">70</span> effects, all of them free.</h2>
+          <p class="sub">Previews rendered by the app itself. Pick a category to narrow it down.</p>
         </div>
-        <div class="tabs" id="fxTabs" role="tablist" aria-label="Effect categories"></div>
+        <div class="pill-tabs left" id="fxTabs" role="tablist" aria-label="Effect categories"></div>
         <div class="gallery" id="gallery" aria-live="polite"></div>
       </section>
 
@@ -176,67 +197,77 @@
       <section class="section create" id="create">
         <div class="create-copy">
           <p class="eyebrow">Make your own</p>
-          <h2>Say what you see.<br /><span class="spectrum-text">Watch it glow.</span></h2>
+          <h2>Describe it. Then tweak it.</h2>
           <p class="sub">
-            Type an idea and the AI designer turns it into editable layers — tuned to the devices you actually own.
-            Tweak it with sliders, or keep talking: “more purple”, “slower”, “add sparkles on the beat”.
+            Type an idea and the AI designer turns it into layers tuned to the devices you own. Adjust the sliders, or keep asking:
+            "more purple", "slower", "sparkles on the beat".
           </p>
-          <ul class="ticks">
-            <li>Works with any LLM — or any AI chat, no key needed</li>
-            <li>Everything stays editable, nothing is a black box</li>
-            <li>Effects are plain files: share one by sending it</li>
+          <ul class="checklist">
+            <li><svg class="ico"><use href="#i-check" /></svg>Any LLM, or any AI chat with no key</li>
+            <li><svg class="ico"><use href="#i-check" /></svg>Everything stays editable</li>
+            <li><svg class="ico"><use href="#i-check" /></svg>Share an effect by sending the file</li>
           </ul>
         </div>
         <div class="prompt-demo" aria-hidden="true">
-          <div class="pd-bar"><span></span><span></span><span></span></div>
-          <div class="pd-input"><span class="pd-wand">✦</span><span id="typed"></span><span class="caret"></span></div>
+          <div class="pd-input"><svg class="ico"><use href="#i-wand" /></svg><span id="typed"></span><span class="caret"></span></div>
           <div class="pd-layers" id="pdLayers"></div>
           <div class="pd-preview"><canvas id="pdCanvas" width="320" height="120"></canvas></div>
         </div>
       </section>
 
-      <!-- ───────── Compare ───────── -->
-      <section class="section" id="compare">
+      <!-- ───────── Pricing ───────── -->
+      <section class="section" id="pricing">
         <div class="section-head">
-          <p class="eyebrow">Why Lumora</p>
-          <h2>Lighting shouldn’t be a subscription.</h2>
+          <p class="eyebrow">Pricing</p>
+          <h2>$0. That's the whole pricing page.</h2>
+          <p class="sub">Most RGB apps keep their best effects behind a monthly plan. Lumora doesn't have a plan.</p>
         </div>
-        <div class="compare">
-          <div class="compare-col them">
-            <h3>Typical RGB apps</h3>
-            <ul>
-              <li>Best effects behind a monthly fee</li>
-              <li>Account required</li>
-              <li>Limited ways to make your own</li>
-              <li>Locked effect formats</li>
+        <div class="pricing">
+          <article class="card price-card">
+            <div class="price-head">
+              <h3>Lumora</h3>
+              <span class="badge">Free forever</span>
+            </div>
+            <p class="price"><span>$0</span> / forever</p>
+            <ul class="checklist">
+              <li><svg class="ico"><use href="#i-check" /></svg>All 70 effects, plus every one added later</li>
+              <li><svg class="ico"><use href="#i-check" /></svg>Visual Creator, Code Editor and AI designer</li>
+              <li><svg class="ico"><use href="#i-check" /></svg>Music sync and screen sync</li>
+              <li><svg class="ico"><use href="#i-check" /></svg>Every device OpenRGB supports</li>
+              <li><svg class="ico"><use href="#i-check" /></svg>Works offline, no account</li>
             </ul>
-          </div>
-          <div class="compare-col us">
-            <h3><img src="/assets/icon.png" alt="" width="22" height="22" /> Lumora</h3>
-            <ul>
-              <li>All 70 effects free, forever</li>
-              <li>No account, works offline</li>
-              <li>Visual Creator, AI designer &amp; code editor</li>
-              <li>Open HTML format — share, remix, import</li>
+            <a class="btn btn-primary" data-download href="#download"><svg class="ico"><use href="#i-windows" /></svg>Download</a>
+          </article>
+          <article class="card price-card plain">
+            <h3>What you won't find here</h3>
+            <ul class="nolist">
+              <li><svg class="ico"><use href="#i-x" /></svg>A "Pro" tier or premium effect packs</li>
+              <li><svg class="ico"><use href="#i-x" /></svg>A free trial that runs out</li>
+              <li><svg class="ico"><use href="#i-x" /></svg>Ads, or features unlocked by signing in</li>
+              <li><svg class="ico"><use href="#i-x" /></svg>An account, ever</li>
             </ul>
-          </div>
+            <p class="muted small">
+              Lumora is a personal project. It stays free because people who like it can
+              <a href="#support">buy me a coffee</a> if they want to. Entirely optional.
+            </p>
+          </article>
         </div>
       </section>
 
       <!-- ───────── Download ───────── -->
       <section class="section download" id="download">
-        <div class="download-card">
-          <img class="dl-icon" src="/assets/icon.png" alt="" width="96" height="96" />
+        <div class="card download-card">
+          <img class="dl-icon" src="/assets/icon.png" alt="" width="72" height="72" />
           <h2>Get Lumora</h2>
           <p class="sub" data-meta-long>Version 0.1.0 · Windows 10 &amp; 11 (64-bit) · about 109 MB</p>
-          <a class="btn btn-glow btn-big" data-download href="#">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.4 1.2L21 21v-8.4h-9.6zm0-15.4v7.2H21V3z" /></svg>
+          <a class="btn btn-primary btn-lg" data-download href="#">
+            <svg class="ico"><use href="#i-windows" /></svg>
             Download Lumora-Setup.exe
           </a>
           <div class="dl-notes">
-            <p><strong>Windows SmartScreen?</strong> Lumora is new and not yet code-signed, so Windows may say “unrecognized app”. Click <em>More info → Run anyway</em>.</p>
-            <p><strong>Real hardware:</strong> install free <a href="https://openrgb.org" target="_blank" rel="noopener">OpenRGB</a>, start its SDK Server, and Lumora connects automatically.</p>
-            <p><a data-releases href="#" target="_blank" rel="noopener">All releases &amp; changelog →</a></p>
+            <p><b>Windows SmartScreen.</b> Lumora isn't code-signed yet, so Windows may call it an unrecognised app. Click <em>More info</em>, then <em>Run anyway</em>.</p>
+            <p><b>Real hardware.</b> Install the free <a href="https://openrgb.org" target="_blank" rel="noopener">OpenRGB</a> and start its SDK Server. Lumora connects on its own.</p>
+            <p><a data-releases href="#" target="_blank" rel="noopener">All releases and changelog <svg class="ico sm"><use href="#i-arrow" /></svg></a></p>
           </div>
         </div>
       </section>
@@ -244,34 +275,28 @@
       <!-- ───────── Maker + Ko-fi ───────── -->
       <section class="section" id="support">
         <div class="maker-grid">
-          <article class="maker">
-            <img class="avatar" src="https://github.com/ChamathShyamantha.png?size=160" alt="" width="88" height="88" loading="lazy" />
+          <article class="card maker">
+            <img class="avatar" src="https://github.com/ChamathShyamantha.png?size=160" alt="" width="64" height="64" loading="lazy" />
             <div>
               <p class="eyebrow">Made by</p>
               <h3 data-author>Chamath Shyamantha</h3>
               <p class="muted" data-tagline>Creative engineer — software, hardware &amp; video</p>
               <div class="maker-links">
-                <a class="btn btn-ghost btn-small" data-portfolio href="#" target="_blank" rel="noopener">Portfolio ↗</a>
-                <a class="btn btn-ghost btn-small" data-github href="#" target="_blank" rel="noopener">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z" /></svg>
-                  GitHub
-                </a>
-                <a class="btn btn-ghost btn-small" data-linkedin href="#" target="_blank" rel="noopener">LinkedIn ↗</a>
+                <a class="btn btn-tertiary btn-sm" data-portfolio href="#" target="_blank" rel="noopener">Portfolio <svg class="ico sm"><use href="#i-external" /></svg></a>
+                <a class="btn btn-tertiary btn-sm" data-github href="#" target="_blank" rel="noopener"><svg class="ico sm"><use href="#i-github" /></svg>GitHub</a>
+                <a class="btn btn-tertiary btn-sm" data-linkedin href="#" target="_blank" rel="noopener">LinkedIn <svg class="ico sm"><use href="#i-external" /></svg></a>
               </div>
             </div>
           </article>
 
-          <article class="kofi" id="kofi">
-            <div class="cup" aria-hidden="true">
-              <span class="steam"></span><span class="steam"></span><span class="steam"></span>
-              <div class="mug"></div>
-            </div>
+          <article class="card kofi" id="kofi">
+            <span class="tile"><svg class="ico"><use href="#i-coffee" /></svg></span>
             <div>
-              <p class="eyebrow">Keep the lights on</p>
-              <h3>Lumora is free. Coffee keeps it that way.</h3>
-              <p class="muted">No ads, no premium tier, no tracking. If Lumora lit up your setup, a coffee helps fund new effects and features.</p>
-              <a class="btn btn-kofi" data-kofi href="#" target="_blank" rel="noopener">☕ Buy me a coffee on Ko-fi</a>
-              <p class="fine" data-kofi-soon hidden>Ko-fi page coming soon — a ⭐ on GitHub helps too!</p>
+              <p class="eyebrow">Support</p>
+              <h3>Free for you. Coffee for me.</h3>
+              <p class="muted">There's no paid version to buy. If Lumora made your setup better, a coffee on Ko-fi helps pay for new effects and features.</p>
+              <a class="btn btn-tertiary" data-kofi href="#" target="_blank" rel="noopener"><svg class="ico sm"><use href="#i-coffee" /></svg>Buy me a coffee</a>
+              <p class="caption" data-kofi-soon hidden>Ko-fi page coming soon.</p>
             </div>
           </article>
         </div>
@@ -281,24 +306,24 @@
       <section class="section faq" id="faq">
         <div class="section-head"><h2>Questions</h2></div>
         <details>
-          <summary>Is it really free? What’s the catch?</summary>
-          <p>Yes. Every effect and feature is free with no account and no subscription. If you want to support development, there’s Ko-fi — entirely optional.</p>
+          <summary>Is it really free? What's the catch?</summary>
+          <p>There isn't one. Every effect and feature is free, with no account and no subscription, and there's no paid version planned. Ko-fi is there if you want to say thanks.</p>
         </details>
         <details>
           <summary>Which devices does it work with?</summary>
-          <p>Lumora drives hardware through OpenRGB, which supports thousands of keyboards, mice, mousepads, RAM, motherboards, GPUs, fans and LED strips. No RGB hardware? Add virtual devices and design effects anyway.</p>
+          <p>Lumora drives hardware through OpenRGB, which supports thousands of keyboards, mice, mousepads, RAM kits, motherboards, GPUs, fans and LED strips. No RGB hardware? Add virtual devices and design effects anyway.</p>
         </details>
         <details>
           <summary>Do I need an AI subscription for the AI designer?</summary>
-          <p>No. Use your own API key with any provider, run a free local model with Ollama or LM Studio, or skip keys entirely with “Use any AI chat”: copy the prompt into ChatGPT, Claude, Gemini or Copilot and paste the reply back.</p>
+          <p>No. Use your own API key with any provider, run a free local model with Ollama or LM Studio, or skip keys with "Use any AI chat": copy the prompt into ChatGPT, Claude, Gemini or Copilot and paste the reply back.</p>
         </details>
         <details>
           <summary>Is my API key safe?</summary>
-          <p>Keys are encrypted with Windows’ own protection and stored only on your PC. They’re sent only to the AI provider you chose — never to us.</p>
+          <p>Keys are encrypted with Windows' own protection and stored only on your PC. They're sent to the AI provider you chose and nowhere else.</p>
         </details>
         <details>
           <summary>Can effects from other people harm my PC?</summary>
-          <p>Effects run in a locked-down sandbox with no network and no access to your files or the app — share and import them freely.</p>
+          <p>Effects run in a locked-down sandbox with no network and no access to your files or the app, so you can import ones you're sent.</p>
         </details>
         <details>
           <summary>Mac or Linux?</summary>
@@ -308,9 +333,9 @@
     </main>
 
     <footer class="footer">
-      <div class="brand"><img src="/assets/icon.png" alt="" width="24" height="24" /><span>Lumora</span></div>
-      <p class="muted">Made with light by <a data-portfolio href="#" target="_blank" rel="noopener" data-author>Chamath Shyamantha</a>. Lumora is free software; RGB control powered by OpenRGB.</p>
-      <p class="fine">© <span id="year">2026</span> Chamath Shyamantha</p>
+      <div class="brand"><img src="/assets/icon.png" alt="" width="22" height="22" /><span>Lumora</span></div>
+      <p class="muted small">Made by <a data-portfolio href="#" target="_blank" rel="noopener" data-author>Chamath Shyamantha</a>. Free software. RGB control powered by OpenRGB.</p>
+      <p class="caption">© <span id="year">2026</span> Chamath Shyamantha</p>
     </footer>
   </body>
 </html>
