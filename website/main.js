@@ -116,39 +116,15 @@
     }
   }
 
-  // ───────── hero keyboard ─────────
-  var ROWS = [
-    [['Esc', 1], ['F1', 1], ['F2', 1], ['F3', 1], ['F4', 1], ['F5', 1], ['F6', 1], ['F7', 1], ['F8', 1], ['F9', 1], ['F10', 1], ['F11', 1], ['F12', 1], ['Del', 2]],
-    [['`', 1], ['1', 1], ['2', 1], ['3', 1], ['4', 1], ['5', 1], ['6', 1], ['7', 1], ['8', 1], ['9', 1], ['0', 1], ['-', 1], ['=', 1], ['⌫', 2]],
-    [['Tab', 1.5], ['Q', 1], ['W', 1], ['E', 1], ['R', 1], ['T', 1], ['Y', 1], ['U', 1], ['I', 1], ['O', 1], ['P', 1], ['[', 1], [']', 1], ['\\', 1.5]],
-    [['Caps', 1.75], ['A', 1], ['S', 1], ['D', 1], ['F', 1], ['G', 1], ['H', 1], ['J', 1], ['K', 1], ['L', 1], [';', 1], ["'", 1], ['Enter', 2.25]],
-    [['Shift', 2.25], ['Z', 1], ['X', 1], ['C', 1], ['V', 1], ['B', 1], ['N', 1], ['M', 1], [',', 1], ['.', 1], ['/', 1], ['Shift', 2.75]],
-    [['Ctrl', 1.25], ['Fn', 1], ['Win', 1.25], ['Alt', 1.25], ['', 4.25], ['Alt', 1], ['Ctrl', 1], ['←', 1], ['↑', 1], ['↓', 1], ['→', 1]]
-  ]
-  var keys = []
-  ROWS.forEach(function (row, y) {
-    var x = 0
-    row.forEach(function (k) {
-      keys.push({ label: k[0], x: x, y: y, w: k[1], cx: x + k[1] / 2, cy: y + 0.5 })
-      x += k[1]
-    })
-  })
-  var PAD = 0.3, GW = 15 + PAD * 2, GH = 6 + PAD * 2
-
-  var kb = $('#kb'), glow = $('#kbGlow')
-  var kctx = kb.getContext('2d'), gctx = glow.getContext('2d')
-  var current = 'rainbow', userPicked = false, ripples = [], lastSpawn = 0
-
-  function resize() {
-    var r = kb.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1)
-    kb.width = Math.round(r.width * dpr); kb.height = Math.round(r.height * dpr)
-    glow.width = Math.round(r.width / 4); glow.height = Math.round(r.height / 4)
-  }
-  window.addEventListener('resize', resize)
-  resize()
+  // ───────── hero: full RGB setup scene (scene.js) ─────────
+  var scene = window.LumoraScene.init({ effects: EFFECTS, mix: mix, hsl: hsl, clamp: clamp })
+  var current = 'rainbow', userPicked = false
+  var start = performance.now(), lastSwitch = 0
+  var order = ['rainbow', 'aurora', 'synthwave', 'fire', 'fireflies', 'ocean']
 
   function select(fx) {
     current = fx
+    scene.setEffect(fx)
     $$('.effect-switch button').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.fx === fx)) })
   }
   $$('.effect-switch button').forEach(function (b) {
@@ -156,74 +132,29 @@
   })
   select(current)
 
-  function toGrid(e) {
-    var r = kb.getBoundingClientRect()
-    return { x: ((e.clientX - r.left) / r.width) * GW - PAD, y: ((e.clientY - r.top) / r.height) * GH - PAD }
+  function toggle(btn, fn) {
+    btn.addEventListener('click', function () {
+      var on = btn.getAttribute('aria-pressed') !== 'true'
+      btn.setAttribute('aria-pressed', String(on))
+      fn(on)
+    })
   }
-  kb.addEventListener('pointermove', function (e) {
-    var now = performance.now() / 1000
-    if (now - lastSpawn < 0.12) return
-    lastSpawn = now
-    var p = toGrid(e)
-    ripples.push({ x: p.x, y: p.y, t0: now, hue: (now * 80) % 360, power: 0.7 })
-  })
-  kb.addEventListener('pointerdown', function (e) {
-    var p = toGrid(e), now = performance.now() / 1000
-    ripples.push({ x: p.x, y: p.y, t0: now, hue: Math.random() * 360, power: 1.3 })
+  toggle($('#musicBtn'), function (on) { scene.setMusic(on) })
+  toggle($('#canvasBtn'), function (on) {
+    scene.setReveal(on)
+    $('#stageHint').textContent = on
+      ? 'This is Lumora’s effect canvas — every LED in your setup samples the colour under it ✦'
+      : 'Hover a device · move across the setup to send light ripples ✦'
   })
 
-  function roundRect(c, x, y, w, h, r) {
-    c.beginPath()
-    if (c.roundRect) c.roundRect(x, y, w, h, r)
-    else c.rect(x, y, w, h)
-  }
-
-  var start = performance.now(), lastSwitch = 0
-  var order = ['rainbow', 'aurora', 'synthwave', 'fire', 'fireflies', 'ocean']
-  function drawKeyboard(now) {
+  function drawHero(now) {
     var t = (now - start) / 1000
-    if (!userPicked && !reduceMotion && t - lastSwitch > 7) {
+    if (!userPicked && !reduceMotion && t - lastSwitch > 8) {
       lastSwitch = t
       select(order[(order.indexOf(current) + 1) % order.length])
     }
     if (current === 'fireflies') stepFlies(t)
-    var W = kb.width, H = kb.height, u = W / GW
-    kctx.clearRect(0, 0, W, H)
-    // chassis
-    var grad = kctx.createLinearGradient(0, 0, 0, H)
-    grad.addColorStop(0, '#191c27'); grad.addColorStop(1, '#0c0e15')
-    kctx.fillStyle = grad
-    roundRect(kctx, 0, 0, W, H, u * 0.55); kctx.fill()
-    kctx.strokeStyle = 'rgba(255,255,255,0.08)'; kctx.lineWidth = Math.max(1, u * 0.03); kctx.stroke()
-
-    gctx.clearRect(0, 0, glow.width, glow.height)
-    var gu = glow.width / GW
-    var now2 = now / 1000
-    ripples = ripples.filter(function (r) { return now2 - r.t0 < 2.2 })
-    var fx = EFFECTS[current]
-    keys.forEach(function (k, idx) {
-      var c = fx(k.cx, k.cy, t, idx)
-      for (var j = 0; j < ripples.length; j++) {
-        var rp = ripples[j], age = now2 - rp.t0
-        var d = Math.hypot(k.cx - rp.x, (k.cy - rp.y) * 1.2)
-        var ring = Math.exp(-Math.pow(d - age * 7, 2) / 0.9) * (1 - age / 2.2) * rp.power
-        if (ring > 0.01) c = mix(c, hsl(rp.hue + d * 12, 100, 62), clamp(ring, 0, 1))
-      }
-      var x = (k.x + PAD + 0.06) * u, y = (k.y + PAD + 0.06) * u, w = (k.w - 0.12) * u, h = 0.88 * u
-      // key cap: lit colour with a darker top face
-      kctx.fillStyle = 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'
-      roundRect(kctx, x, y, w, h, u * 0.14); kctx.fill()
-      kctx.fillStyle = 'rgba(10,11,18,0.42)'
-      roundRect(kctx, x + u * 0.07, y + u * 0.05, w - u * 0.14, h - u * 0.2, u * 0.11); kctx.fill()
-      if (k.label && u > 22) {
-        kctx.fillStyle = 'rgba(255,255,255,0.78)'
-        kctx.font = '600 ' + Math.min(u * 0.26, w * 0.32) + 'px Inter, sans-serif'
-        kctx.textAlign = 'center'; kctx.textBaseline = 'middle'
-        kctx.fillText(k.label, x + w / 2, y + h * 0.42)
-      }
-      gctx.fillStyle = 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'
-      gctx.fillRect((k.x + PAD) * gu, (k.y + PAD) * gu, k.w * gu, gu)
-    })
+    scene.draw(now, t)
   }
 
   // ───────── prompt demo ─────────
@@ -317,7 +248,7 @@
     new IntersectionObserver(function (e) { demoVisible = e[0].isIntersecting }).observe(pd)
   }
   function loop(now) {
-    if (heroVisible) drawKeyboard(now)
+    if (heroVisible) drawHero(now)
     if (demoVisible) drawDemo(now)
     if (!reduceMotion) requestAnimationFrame(loop)
   }

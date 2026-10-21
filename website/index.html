@@ -20,6 +20,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/config.js"></script>
+    <script src="/scene.js" defer></script>
     <script src="/main.js" defer></script>
   </head>
   <body>
@@ -31,6 +32,7 @@
         <span>Lumora</span>
       </a>
       <nav class="nav-links" aria-label="Main">
+        <a href="#devices">Devices</a>
         <a href="#features">Features</a>
         <a href="#effects">Effects</a>
         <a href="#create">Create</a>
@@ -43,10 +45,11 @@
       <!-- ───────── Hero ───────── -->
       <section class="hero">
         <div class="hero-copy">
-          <p class="eyebrow"><span class="pulse-dot"></span> Free RGB lighting studio for Windows</p>
-          <h1>Paint your setup<br /><span class="spectrum-text">with light.</span></h1>
+          <p class="eyebrow"><span class="pulse-dot"></span> Free RGB studio for your whole setup</p>
+          <h1>Paint your setup <span class="spectrum-text">with light.</span></h1>
           <p class="lede">
-            70 hand-crafted effects, a no-code creator, and an AI that designs lighting from a single sentence.
+            Fans, RAM, GPU, strips, keyboard, mouse, monitor — one effect flowing across every LED you own.
+            70 hand-crafted effects, a no-code creator and an AI that designs lighting from a sentence.
             <strong>No account. No subscription. No paywall.</strong>
           </p>
           <div class="cta-row">
@@ -60,19 +63,29 @@
         </div>
 
         <div class="stage" id="stage">
-          <div class="keyboard-wrap">
-            <canvas class="kb-glow" id="kbGlow" aria-hidden="true"></canvas>
-            <canvas class="kb" id="kb" role="img" aria-label="An RGB keyboard animating Lumora lighting effects"></canvas>
+          <div class="scene-wrap" id="sceneWrap">
+            <canvas class="scene-glow" id="sceneGlow" aria-hidden="true"></canvas>
+            <canvas class="scene" id="scene" role="img" aria-label="A full RGB PC setup — case fans, RAM, GPU, LED strips, monitor backlight, keyboard, mouse and mousepad — all animating one Lumora effect in sync"></canvas>
+            <div class="scene-tip" id="sceneTip" hidden></div>
+            <div class="scene-hud">
+              <span class="live-dot"></span><span id="hudText">11 devices · 0 LEDs in sync</span>
+            </div>
           </div>
-          <div class="effect-switch" role="tablist" aria-label="Try an effect">
-            <button role="tab" data-fx="rainbow">Rainbow Wave</button>
-            <button role="tab" data-fx="aurora">Aurora</button>
-            <button role="tab" data-fx="synthwave">Synthwave</button>
-            <button role="tab" data-fx="fire">Fire</button>
-            <button role="tab" data-fx="fireflies">Firefly Sync</button>
-            <button role="tab" data-fx="ocean">Bioluminescence</button>
+          <div class="stage-controls">
+            <div class="effect-switch" role="tablist" aria-label="Try an effect">
+              <button role="tab" data-fx="rainbow">Rainbow Wave</button>
+              <button role="tab" data-fx="aurora">Aurora</button>
+              <button role="tab" data-fx="synthwave">Synthwave</button>
+              <button role="tab" data-fx="fire">Fire</button>
+              <button role="tab" data-fx="fireflies">Firefly Sync</button>
+              <button role="tab" data-fx="ocean">Bioluminescence</button>
+            </div>
+            <div class="toggles">
+              <button class="toggle-btn" id="musicBtn" aria-pressed="false">♪ Music sync</button>
+              <button class="toggle-btn" id="canvasBtn" aria-pressed="false">◎ How it works</button>
+            </div>
           </div>
-          <p class="stage-hint">Move your mouse over the keys ✦</p>
+          <p class="stage-hint" id="stageHint">Hover a device · move across the setup to send light ripples ✦</p>
         </div>
       </section>
 
@@ -80,6 +93,32 @@
       <section class="marquee" aria-label="Some of the included effects">
         <div class="marquee-track" id="marqueeA"></div>
         <div class="marquee-track reverse" id="marqueeB"></div>
+      </section>
+
+      <!-- ───────── Devices ───────── -->
+      <section class="section" id="devices">
+        <div class="section-head">
+          <p class="eyebrow">One effect. Every device.</p>
+          <h2>If it glows, <span class="spectrum-text">Lumora runs it.</span></h2>
+          <p class="sub">
+            Lumora places every LED in your setup on one shared canvas, so effects flow across devices — a wave starts on your fans,
+            rolls over your keyboard and lands on your mousepad. Hardware support comes from the open-source OpenRGB project.
+          </p>
+        </div>
+        <div class="device-grid" id="deviceGrid">
+          <div class="dev"><i class="d-ico fan"></i><b>Case fans</b><span>Front, rear, top — every ring</span></div>
+          <div class="dev"><i class="d-ico ram"></i><b>RAM</b><span>Every stick, every LED</span></div>
+          <div class="dev"><i class="d-ico gpu"></i><b>Graphics cards</b><span>Light bars &amp; logos</span></div>
+          <div class="dev"><i class="d-ico mobo"></i><b>Motherboards</b><span>Onboard zones &amp; headers</span></div>
+          <div class="dev"><i class="d-ico aio"></i><b>AIO coolers</b><span>Pumps &amp; radiator fans</span></div>
+          <div class="dev"><i class="d-ico strip"></i><b>LED strips</b><span>Addressable ARGB</span></div>
+          <div class="dev"><i class="d-ico kb"></i><b>Keyboards</b><span>Per-key lighting</span></div>
+          <div class="dev"><i class="d-ico mouse"></i><b>Mice &amp; mousepads</b><span>Logos, wheels, edges</span></div>
+          <div class="dev"><i class="d-ico headset"></i><b>Headsets &amp; stands</b><span>Ear cups to bases</span></div>
+          <div class="dev"><i class="d-ico monitor"></i><b>Monitor backlights</b><span>Screen-synced ambience</span></div>
+          <div class="dev"><i class="d-ico bulb"></i><b>Smart lights</b><span>Room lighting via OpenRGB</span></div>
+          <div class="dev"><i class="d-ico virtual"></i><b>Virtual devices</b><span>Design on any PC, no RGB needed</span></div>
+        </div>
       </section>
 
       <!-- ───────── Features ───────── -->
