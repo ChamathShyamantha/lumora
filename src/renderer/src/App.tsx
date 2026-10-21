@@ -12,7 +12,7 @@ import { Devices } from './views/Devices'
 import { Settings } from './views/Settings'
 import { GameReactions } from './views/GameReactions'
 import { Scenes } from './views/Scenes'
-import { UpdatePill } from './components/Updates'
+import { UpdatePill, useUpdateStatus } from './components/Updates'
 import { Toast, useToast } from './components/Toast'
 
 const NAV: { view: View; label: string; icon: typeof IconLibrary; section?: string }[] = [
@@ -326,6 +326,7 @@ export function App() {
   const setView = useApp((s) => s.setView)
   const brightness = useApp((s) => s.brightness)
   const lightsOff = useApp((s) => s.lightsOff)
+  const { version: appVersion } = useUpdateStatus()
   const setBrightness = useApp((s) => s.setBrightness)
   const activeTitle = useApp((s) => {
     if (s.view === 'create' || s.view === 'code') return s.editing ? 'Editing…' : 'Editor preview'
@@ -415,7 +416,7 @@ export function App() {
           </div>
         ))}
         <div className="sidebar-foot">
-          Lumora 0.1 · free &amp; open source
+          Lumora {appVersion} · free &amp; open source
         </div>
       </nav>
       <main className="main">
