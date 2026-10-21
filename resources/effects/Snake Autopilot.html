@@ -1,0 +1,308 @@
+<head>
+  <title>Snake Autopilot</title>
+  <meta description="A glowing snake steers itself across the grid, hunting food and growing longer until it finally gets boxed in." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="snake,arcade,classic,game,grid,ai,8bit,retro,nokia" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+  <meta property="snakeColor" label="Snake Color" type="color" default="#7dff2d" />
+  <meta property="foodColor" label="Food Color" type="color" default="#ff2d78" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const floorBright = (c, m) => { const mx = Math.max(c[0], c[1], c[2]); return mx >= m ? c : mx === 0 ? [m, m, m] : c.map((v) => v * m / mx); };
+    function hueShift(c, deg) {
+      const a = deg * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a), k = 1 / 3, sq = Math.sqrt(k);
+      const m00 = cs + (1 - cs) * k, m01 = k * (1 - cs) - sq * sn, m02 = k * (1 - cs) + sq * sn;
+      return [c[0] * m00 + c[1] * m01 + c[2] * m02, c[0] * m02 + c[1] * m00 + c[2] * m01, c[0] * m01 + c[1] * m02 + c[2] * m00].map((v) => clamp(v, 0, 255));
+    }
+
+    const GW = 16, GH = 10, CELL = 20, N = GW * GH;
+    const cfg = { speed: 50, snake: [125, 255, 45], tail: [0, 160, 255], food: [255, 45, 120] };
+
+    function readProps() {
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.snake = floorBright(hexRgb(get(() => snakeColor, '#7dff2d'), '#7dff2d'), 110);
+      cfg.tail = mix(hueShift(cfg.snake, 70), [0, 0, 0], 0.35);
+      cfg.food = floorBright(hexRgb(get(() => foodColor, '#ff2d78'), '#ff2d78'), 110);
+    }
+    function onspeedChanged() { readProps(); }
+    function onsnakeColorChanged() { readProps(); }
+    function onfoodColorChanged() { readProps(); }
+
+    const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const S = { body: [], prev: [], food: 0, phase: 'play', timer: 0, sinceFood: 0, flash: 0, flashCol: [255, 255, 255], rings: [], parts: [], rounds: 0, best: 0 };
+    const occ = new Int32Array(N); // moves until the cell frees up (0 = free)
+    const dist = new Int32Array(N), from = new Int32Array(N), queue = new Int32Array(N);
+
+    const idx = (x, y) => y * GW + x;
+    function placeFood() {
+      const used = new Uint8Array(N);
+      for (const c of S.body) used[c] = 1;
+      const free = [];
+      for (let i = 0; i < N; i++) if (!used[i]) free.push(i);
+      S.food = free.length ? free[(Math.random() * free.length) | 0] : -1;
+    }
+    function restart() {
+      const x = 3 + ((Math.random() * (GW - 6)) | 0), y = 2 + ((Math.random() * (GH - 4)) | 0);
+      S.body = [idx(x, y), idx(x - 1, y), idx(x - 2, y)];
+      S.prev = S.body.slice();
+      S.phase = 'play'; S.sinceFood = 0; S.rounds++;
+      S.reckless = 30 + Math.random() * 60; // past this length it gets greedy and eventually traps itself
+      placeFood();
+    }
+
+    // time-aware BFS: a body cell (index i from head, length L) is free after L - i moves.
+    function bfs(body, start, target, grow) {
+      const L = body.length;
+      occ.fill(0);
+      for (let i = 0; i < L; i++) occ[body[i]] = L - i + (grow ? 1 : 0);
+      dist.fill(-1);
+      let h = 0, t = 0;
+      queue[t++] = start; dist[start] = 0; from[start] = -1;
+      while (h < t) {
+        const c = queue[h++];
+        if (c === target && c !== start) break;
+        const cx = c % GW, cy = (c / GW) | 0, d = dist[c] + 1;
+        for (const [dx, dy] of DIRS) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+          const n = idx(nx, ny);
+          if (dist[n] >= 0) continue;
+          if (occ[n] > d && n !== target) continue;
+          if (occ[n] > d && n === target && target !== body[L - 1]) continue;
+          dist[n] = d; from[n] = c; queue[t++] = n;
+        }
+      }
+      if (dist[target] < 0 || target === start) return null;
+      const path = [];
+      for (let c = target; c !== start; c = from[c]) path.push(c);
+      return path.reverse();
+    }
+    function floodArea(body, start) {
+      const L = body.length;
+      occ.fill(0);
+      for (let i = 0; i < L; i++) occ[body[i]] = L - i;
+      dist.fill(-1);
+      let h = 0, t = 0;
+      queue[t++] = start; dist[start] = 0;
+      while (h < t) {
+        const c = queue[h++], cx = c % GW, cy = (c / GW) | 0, d = dist[c] + 1;
+        for (const [dx, dy] of DIRS) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+          const n = idx(nx, ny);
+          if (dist[n] >= 0 || occ[n] > d) continue;
+          dist[n] = d; queue[t++] = n;
+        }
+      }
+      return t;
+    }
+    function neighbours(c) {
+      const out = [], cx = c % GW, cy = (c / GW) | 0;
+      for (const [dx, dy] of DIRS) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx >= 0 && ny >= 0 && nx < GW && ny < GH) out.push(idx(nx, ny));
+      }
+      return out;
+    }
+    const moved = (body, c, grow) => { const b = [c].concat(body); if (!grow) b.pop(); return b; };
+
+    function chooseMove() {
+      const body = S.body, head = body[0];
+      // 1) shortest safe path to food
+      if (S.food >= 0) {
+        const p = bfs(body, head, S.food, false);
+        if (p) {
+          let b = body;
+          for (let i = 0; i < p.length; i++) b = moved(b, p[i], i === p.length - 1);
+          if (body.length > S.reckless || bfs(b, b[0], b[b.length - 1], false)) return p[0];
+        }
+      }
+      // 2) follow the tail, preferring the longest detour; 3) else the roomiest cell
+      const L = body.length;
+      let best = -1, bestScore = -1e9;
+      for (const n of neighbours(head)) {
+        const ci = body.indexOf(n);
+        if (ci >= 0 && ci < L - 1) continue;
+        const b = moved(body, n, false);
+        const toTail = bfs(b, n, b[b.length - 1], false);
+        const area = floodArea(b, n);
+        const fx = S.food % GW, fy = (S.food / GW) | 0, nx = n % GW, ny = (n / GW) | 0;
+        const far = Math.abs(fx - nx) + Math.abs(fy - ny);
+        const score = (toTail ? 10000 + far * 3 : 0) + area * 10 + Math.random();
+        if (score > bestScore) { bestScore = score; best = n; }
+      }
+      return best;
+    }
+
+    function die(win) {
+      S.phase = 'dead';
+      S.timer = win ? 2.2 : 1.8;
+      S.flash = 1;
+      S.flashCol = win ? [255, 255, 255] : mix(cfg.food, [255, 255, 255], 0.3);
+      S.win = !!win;
+      S.best = Math.max(S.best, S.body.length);
+    }
+
+    function move() {
+      if (S.phase !== 'play') return;
+      const n = chooseMove();
+      S.prev = S.body.slice();
+      if (n < 0) { die(false); return; }
+      const grow = n === S.food;
+      S.body = moved(S.body, n, grow);
+      S.sinceFood++;
+      if (grow) {
+        S.sinceFood = 0;
+        S.rings.push({ c: n, r: 6, life: 0.5 });
+        S.flash = Math.max(S.flash, 0.25); S.flashCol = cfg.food;
+        if (S.body.length >= N) { die(true); return; }
+        placeFood();
+      }
+      // wandering without food for too long means we are stuck in a loop
+      if (S.sinceFood > N * 2) die(false);
+    }
+
+    let moveAcc = 0;
+    function update(dt) {
+      const rate = 4 + cfg.speed / 100 * 18; // moves per second
+      if (S.phase === 'play') {
+        moveAcc += dt * rate;
+        let n = 0;
+        while (moveAcc >= 1 && n < 8) { move(); moveAcc -= 1; n++; }
+        if (moveAcc >= 1) moveAcc = 0;
+      } else {
+        S.timer -= dt;
+        // body crumbles from the head into particles
+        if (S.timer < 1.2 && S.body.length) {
+          const k = Math.max(1, Math.ceil(S.body.length * dt * 3));
+          for (let i = 0; i < k && S.body.length; i++) {
+            const c = S.body.shift();
+            const x = (c % GW + 0.5) * CELL, y = (((c / GW) | 0) + 0.5) * CELL;
+            for (let j = 0; j < 3; j++) {
+              const a = Math.random() * Math.PI * 2, s = 20 + Math.random() * 70;
+              S.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.7 });
+            }
+          }
+          S.prev = S.body.slice();
+        }
+        if (S.timer <= 0) { restart(); S.flash = 0.8; S.flashCol = [255, 255, 255]; moveAcc = 0; }
+      }
+      for (let i = S.rings.length - 1; i >= 0; i--) { const r = S.rings[i]; r.r += 120 * dt; r.life -= dt; if (r.life <= 0) S.rings.splice(i, 1); }
+      for (let i = S.parts.length - 1; i >= 0; i--) { const p = S.parts[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 1 - 2 * dt; p.vy *= 1 - 2 * dt; p.life -= dt; if (p.life <= 0) S.parts.splice(i, 1); }
+      S.flash = Math.max(0, S.flash - dt * 2.5);
+    }
+
+    function glow(x, y, r, col, a) {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(col, a));
+      g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    let clock = 0;
+    function render() {
+      const sc = cfg.snake, fc = cfg.food;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = rgba(mix(sc, [0, 0, 0], 0.9), 1);
+      ctx.fillRect(0, 0, W, H);
+      // glowing grid cells
+      ctx.fillStyle = rgba(mix(sc, [0, 0, 0], 0.8), 1);
+      for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) ctx.fillRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4);
+      ctx.strokeStyle = rgba(sc, 0.28);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, W - 2, H - 2);
+
+      ctx.globalCompositeOperation = 'lighter';
+      // food
+      if (S.food >= 0 && S.phase === 'play') {
+        const fx = (S.food % GW + 0.5) * CELL, fy = (((S.food / GW) | 0) + 0.5) * CELL;
+        const pulse = 0.75 + 0.25 * Math.sin(clock * 7);
+        glow(fx, fy, 56, fc, 0.6 * pulse);
+        glow(fx, fy, 16, mix(fc, [255, 255, 255], 0.5), 1);
+        ctx.fillStyle = rgba(fc, 1);
+        ctx.fillRect(fx - 7, fy - 7, 14, 14);
+      }
+      for (const r of S.rings) {
+        const x = (r.c % GW + 0.5) * CELL, y = (((r.c / GW) | 0) + 0.5) * CELL;
+        ctx.strokeStyle = rgba(fc, r.life * 2);
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.arc(x, y, r.r, 0, Math.PI * 2); ctx.stroke();
+      }
+
+      // snake (interpolated between grid steps)
+      const f = S.phase === 'play' ? clamp(moveAcc, 0, 1) : 1;
+      const L = S.body.length;
+      const pts = [];
+      // joints sit on cell centres; only the head and tail glide, so corners stay square
+      for (let i = 0; i < L; i++) {
+        const b = S.body[i], bx = b % GW, by = (b / GW) | 0;
+        if (i === 0 || i === L - 1) {
+          const a = S.prev.length ? S.prev[Math.min(i, S.prev.length - 1)] : b;
+          const ax = a % GW, ay = (a / GW) | 0;
+          pts.push([(ax + (bx - ax) * f + 0.5) * CELL, (ay + (by - ay) * f + 0.5) * CELL]);
+        } else pts.push([(bx + 0.5) * CELL, (by + 0.5) * CELL]);
+      }
+      const blink = S.phase === 'dead' && Math.floor(clock * 12) % 2 === 0;
+      const segCol = (i) => blink ? [255, 255, 255] : mix(sc, cfg.tail, L > 1 ? i / (L - 1) : 0);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const [lw, al] of [[30, 0.16], [16, 0.95]]) {
+        ctx.lineWidth = lw;
+        for (let i = L - 1; i >= 0; i--) {
+          const p = pts[i], q = pts[Math.min(i + 1, L - 1)];
+          ctx.strokeStyle = rgba(segCol(i), al * (al < 0.5 ? 1 : 1 - 0.45 * i / Math.max(1, L)));
+          ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(p[0] + 0.01, p[1]); ctx.stroke();
+        }
+      }
+      if (L) {
+        const h = pts[0];
+        glow(h[0], h[1], 44, sc, 0.55);
+        glow(h[0], h[1], 12, [255, 255, 255], 0.9);
+        // eyes looking along the direction of travel
+        const p1 = pts[1] || h;
+        let dx = h[0] - p1[0], dy = h[1] - p1[1];
+        const dl = Math.hypot(dx, dy) || 1; dx /= dl; dy /= dl;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = rgba(mix(sc, [0, 0, 0], 0.85), 1);
+        for (const s of [-1, 1]) ctx.fillRect(h[0] + dx * 3 - dy * 4 * s - 1.5, h[1] + dy * 3 + dx * 4 * s - 1.5, 3, 3);
+        ctx.globalCompositeOperation = 'lighter';
+      }
+      for (const p of S.parts) { ctx.fillStyle = rgba(S.win ? [255, 255, 255] : sc, p.life * 1.4); ctx.fillRect(p.x - 3, p.y - 3, 6, 6); }
+
+      ctx.globalCompositeOperation = 'source-over';
+      if (S.flash > 0.01) { ctx.fillStyle = rgba(S.flashCol, S.flash * 0.45); ctx.fillRect(0, 0, W, H); }
+    }
+
+    restart();
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      clock += dt;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

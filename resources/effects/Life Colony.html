@@ -1,0 +1,203 @@
+<head>
+  <title>Life Colony</title>
+  <meta description="Conway's Game of Life as a neon colony: cells glow, age through colour and leave fading ghost trails." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="game of life,conway,cellular automaton,cells,pixels,generative,neon,retro,simulation" />
+  <meta property="colorScheme" label="Colour Scheme" type="combobox" values="Neon,Toxic,Inferno,Spectrum,Ice" default="Neon" />
+  <meta property="genSpeed" label="Generation Speed" type="number" min="1" max="100" default="35" />
+  <meta property="trailFade" label="Trail Length" type="number" min="0" max="100" default="55" tooltip="How long dead cells keep glowing" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+
+    // Colour by age: newborn -> mature -> elder (ages 0..AGES-1).
+    const SCHEMES = {
+      Neon: [[170, 255, 255], [0, 230, 255], [140, 60, 255], [255, 0, 200], [255, 0, 110]],
+      Toxic: [[245, 255, 220], [170, 255, 0], [0, 255, 120], [0, 190, 170], [0, 110, 200]],
+      Inferno: [[255, 255, 210], [255, 220, 40], [255, 120, 0], [255, 30, 20], [190, 0, 60]],
+      Spectrum: null,
+      Ice: [[255, 255, 255], [150, 240, 255], [0, 180, 255], [40, 90, 255], [110, 50, 255]]
+    };
+    const AGES = 24;
+    const LUT = new Uint8ClampedArray(AGES * 3);
+    let lutName = null;
+    function buildLut(name) {
+      const st = SCHEMES[name];
+      for (let a = 0; a < AGES; a++) {
+        const f = Math.pow(a / (AGES - 1), 0.6);
+        if (!st) {
+          const h = (f * 1.2 + 0.5) % 1 * 6, k = h | 0, r = h - k;
+          const c = [[1, r, 0], [1 - r, 1, 0], [0, 1, r], [0, 1 - r, 1], [r, 0, 1], [1, 0, 1 - r]][k];
+          const wh = a === 0 ? 0.5 : 0;
+          for (let i = 0; i < 3; i++) LUT[a * 3 + i] = (c[i] + (1 - c[i]) * wh) * 255;
+          continue;
+        }
+        const tt = f * (st.length - 1), k = Math.min(st.length - 2, tt | 0), r = tt - k;
+        for (let i = 0; i < 3; i++) LUT[a * 3 + i] = st[k][i] + (st[k + 1][i] - st[k][i]) * r;
+      }
+      lutName = name;
+    }
+
+    const GW = 40, GH = 25, N = GW * GH;
+    let cur = new Uint8Array(N), nxt = new Uint8Array(N);
+    const age = new Uint16Array(N);
+    const glow = new Float32Array(N);
+    const colr = new Float32Array(N * 3);
+    const hist = [];
+    let seed = 12345;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+
+    // Draw each cell as a soft rounded 4x4 "bulb" in a 160x100 buffer, then upscale smoothly.
+    const SUB = 4, MASK = [0.5, 1, 1, 0.5];
+    const B = buffer(GW * SUB, GH * SUB);
+    const G = buffer(GW, GH);
+    const cfg = { scheme: 'Neon', speed: 35, trail: 55 };
+    let genAcc = 0, stale = 0, sinceSeed = 0;
+
+    function readProps() {
+      const s = String(get(() => colorScheme, 'Neon'));
+      cfg.scheme = s in SCHEMES ? s : 'Neon';
+      if (lutName !== cfg.scheme) buildLut(cfg.scheme);
+      cfg.speed = clamp(num(get(() => genSpeed), 35), 0, 100);
+      cfg.trail = clamp(num(get(() => trailFade), 55), 0, 100);
+    }
+    function oncolorSchemeChanged() { readProps(); }
+    function ongenSpeedChanged() { readProps(); }
+    function ontrailFadeChanged() { readProps(); }
+
+    function sprinkle(cx, cy, w, h, dens) {
+      for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+          if (rnd() < dens) {
+            const o = ((cy + j + GH) % GH) * GW + ((cx + i + GW) % GW);
+            if (!cur[o]) { cur[o] = 1; age[o] = 0; }
+          }
+        }
+      }
+    }
+
+    function generation() {
+      let pop = 0, hash = 0;
+      for (let y = 0; y < GH; y++) {
+        const ym = ((y + GH - 1) % GH) * GW, y0 = y * GW, yp = ((y + 1) % GH) * GW;
+        for (let x = 0; x < GW; x++) {
+          const xm = (x + GW - 1) % GW, xp = (x + 1) % GW;
+          const n = cur[ym + xm] + cur[ym + x] + cur[ym + xp] + cur[y0 + xm] + cur[y0 + xp] + cur[yp + xm] + cur[yp + x] + cur[yp + xp];
+          const o = y0 + x;
+          const live = cur[o] ? (n === 2 || n === 3) : n === 3;
+          nxt[o] = live ? 1 : 0;
+          if (live) {
+            age[o] = cur[o] ? Math.min(AGES - 1, age[o] + 1) : 0;
+            pop++;
+            hash = (hash * 31 + o * 7 + 1) | 0;
+          }
+        }
+      }
+      const s = cur; cur = nxt; nxt = s;
+      // Still lifes and short oscillators repeat a recent state: count how long that lasts.
+      if (hist.indexOf(hash) >= 0) stale++; else stale = Math.max(0, stale - 1);
+      hist.push(hash);
+      if (hist.length > 16) hist.shift();
+      sinceSeed++;
+      // Re-energise a colony that has died out, frozen, or thinned to a few survivors.
+      if (pop < 25 || stale > 24 || (pop < 190 && sinceSeed > 30)) {
+        const n = pop < 25 ? 3 : 1;
+        sinceSeed = 0;
+        for (let k = 0; k < n; k++) sprinkle((rnd() * GW) | 0, (rnd() * GH) | 0, 12 + ((rnd() * 7) | 0), 8 + ((rnd() * 5) | 0), 0.45);
+        stale = 0;
+      }
+    }
+
+    function update(dt) {
+      const rate = 0.7 + cfg.speed * 0.17; // generations per second
+      genAcc += dt * rate;
+      let steps = 0;
+      while (genAcc >= 1 && steps < 4) { generation(); genAcc -= 1; steps++; }
+      if (genAcc > 1) genAcc = 1;
+      const rise = 1 - Math.exp(-dt * 14);
+      const fall = Math.exp(-dt * (7 - cfg.trail * 0.064));
+      const drift = 1 - Math.exp(-dt * 2.5), el = (AGES - 1) * 3;
+      for (let o = 0; o < N; o++) {
+        if (cur[o]) {
+          const l = age[o] * 3;
+          glow[o] += (1 - glow[o]) * rise;
+          const k = 1 - Math.exp(-dt * 10);
+          colr[o * 3] += (LUT[l] - colr[o * 3]) * k;
+          colr[o * 3 + 1] += (LUT[l + 1] - colr[o * 3 + 1]) * k;
+          colr[o * 3 + 2] += (LUT[l + 2] - colr[o * 3 + 2]) * k;
+        } else {
+          glow[o] *= fall;
+          // Ghosts drift towards the scheme's elder colour as they fade.
+          colr[o * 3] += (LUT[el] - colr[o * 3]) * drift;
+          colr[o * 3 + 1] += (LUT[el + 1] - colr[o * 3 + 1]) * drift;
+          colr[o * 3 + 2] += (LUT[el + 2] - colr[o * 3 + 2]) * drift;
+        }
+      }
+    }
+
+    function render() {
+      const d = B.d, bw = B.w, gd = G.d;
+      for (let y = 0; y < GH; y++) {
+        for (let x = 0; x < GW; x++) {
+          const o = y * GW + x;
+          const g = glow[o];
+          // Dead cells dim faster than their colour, so trails sink into a deep tint.
+          const lv = cur[o] ? 0.35 + 0.65 * g : g * 0.75;
+          const r = colr[o * 3] * lv, gg = colr[o * 3 + 1] * lv, b = colr[o * 3 + 2] * lv;
+          gd[o * 4] = r; gd[o * 4 + 1] = gg; gd[o * 4 + 2] = b; gd[o * 4 + 3] = 255;
+          for (let j = 0; j < SUB; j++) {
+            let p = ((y * SUB + j) * bw + x * SUB) * 4;
+            for (let i = 0; i < SUB; i++, p += 4) {
+              const m = MASK[i] * MASK[j];
+              d[p] = r * m; d[p + 1] = gg * m; d[p + 2] = b * m; d[p + 3] = 255;
+            }
+          }
+        }
+      }
+      B.x.putImageData(B.img, 0, 0);
+      G.x.putImageData(G.img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(B.c, 0, 0, W, H);
+      // Bloom: the same colony at 1/8 resolution, smeared wide and added on top.
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(G.c, -4, -4, W + 8, H + 8);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    sprinkle(0, 0, GW, GH, 0.3);
+    requestAnimationFrame(frame);
+  </script>
+</body>

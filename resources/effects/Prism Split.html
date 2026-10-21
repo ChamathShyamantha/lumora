@@ -1,0 +1,204 @@
+<head>
+  <title>Prism Split</title>
+  <meta description="A white beam strikes a slowly turning glass prism and fans out into a sweeping rainbow." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="rainbow" />
+  <meta tags="prism,rainbow,spectrum,light,refraction,dispersion,optics,beam,glass" />
+  <meta property="rotationSpeed" label="Rotation Speed" type="number" min="0" max="100" default="25" />
+  <meta property="spreadWidth" label="Spread Width" type="number" min="1" max="100" default="65" tooltip="How widely the rainbow fans out" />
+  <meta property="beamBrightness" label="Beam Brightness" type="number" min="10" max="100" default="80" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, TAU = Math.PI * 2;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+    const fan = document.createElement('canvas');
+    fan.width = W; fan.height = H;
+    const fx = fan.getContext('2d');
+
+    const cfg = { rot: 25, spread: 65, bright: 80 };
+    let ang = 0.3, t = 0;
+    const PC = [92, 92], PR = 42;
+
+    function readProps() {
+      cfg.rot = clamp(num(get(() => rotationSpeed), 25), 0, 100);
+      cfg.spread = clamp(num(get(() => spreadWidth), 65), 0, 100);
+      cfg.bright = clamp(num(get(() => beamBrightness), 80), 0, 100);
+    }
+    function onrotationSpeedChanged() { readProps(); }
+    function onspreadWidthChanged() { readProps(); }
+    function onbeamBrightnessChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt;
+      ang += dt * cfg.rot * 0.0045;
+      if (ang > TAU) ang -= TAU;
+      if (t > 1e5) t = 0;
+    }
+
+    function verts() {
+      const v = [];
+      for (let k = 0; k < 3; k++) {
+        const a = ang - Math.PI / 2 + (k * TAU) / 3;
+        v.push([PC[0] + Math.cos(a) * PR, PC[1] + Math.sin(a) * PR]);
+      }
+      return v;
+    }
+    // Ray (o + s*d) against the triangle's edges: returns {s, n} for the nearest (or farthest) hit.
+    function hit(v, o, d, far) {
+      let best = null;
+      for (let k = 0; k < 3; k++) {
+        const a = v[k], b = v[(k + 1) % 3];
+        const ex = b[0] - a[0], ey = b[1] - a[1];
+        const den = d[0] * ey - d[1] * ex;
+        if (Math.abs(den) < 1e-9) continue;
+        const s = ((a[0] - o[0]) * ey - (a[1] - o[1]) * ex) / den;
+        const u = ((a[0] - o[0]) * d[1] - (a[1] - o[1]) * d[0]) / den;
+        if (s <= 1e-6 || u < 0 || u > 1) continue;
+        if (!best || (far ? s > best.s : s < best.s)) {
+          const len = Math.hypot(ex, ey) || 1;
+          best = { s, n: [ey / len, -ex / len] };
+        }
+      }
+      return best;
+    }
+
+    function beam(x0, y0, x1, y1, a, widths) {
+      ctx.lineCap = 'round';
+      for (let i = 0; i < widths.length; i++) {
+        ctx.strokeStyle = 'rgba(255,255,255,' + clamp(a * widths[i][1], 0, 1).toFixed(3) + ')';
+        ctx.lineWidth = widths[i][0];
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
+    }
+
+    function render() {
+      const br = 0.25 + cfg.bright * 0.0075;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      // A faint violet haze, as if the room is lit by the spectrum.
+      const haze = ctx.createRadialGradient(PC[0] + 60, PC[1], 10, PC[0] + 60, PC[1], 260);
+      haze.addColorStop(0, 'rgba(70,40,110,' + (0.35 * br).toFixed(3) + ')');
+      haze.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = haze;
+      ctx.fillRect(0, 0, W, H);
+
+      const v = verts();
+      const by = PC[1] + 10 * Math.sin(t * 0.21);
+      const inHit = hit(v, [-10, by], [1, 0], false);
+      const entry = inHit ? [-10 + inHit.s, by] : [PC[0] - PR * 0.5, by];
+      // The outgoing direction swings with the prism's orientation, like a real minimum-deviation dance.
+      const dev = 0.2 + 0.22 * Math.sin(ang * 3 + 0.6);
+      const dir = [Math.cos(dev), Math.sin(dev)];
+      const outHit = hit(v, PC, dir, true);
+      const exit = outHit ? [PC[0] + dir[0] * outHit.s, PC[1] + dir[1] * outHit.s] : [PC[0] + dir[0] * PR * 0.5, PC[1] + dir[1] * PR * 0.5];
+
+      // Rainbow fan, drawn off-screen then faded with distance.
+      const spread = 0.3 + cfg.spread * 0.016;
+      const NW = 64, L = 520;
+      fx.globalCompositeOperation = 'source-over';
+      fx.clearRect(0, 0, W, H);
+      const shade = (f, i) => {
+        const edge = Math.sin(Math.PI * f);
+        const shimmer = 0.88 + 0.12 * Math.sin(t * 1.3 - i * 0.6);
+        // Brightness rolls off softly towards both edges of the spectrum.
+        return 'hsl(' + (f * 285).toFixed(1) + ',100%,' + (50 * Math.pow(edge, 0.35) * shimmer).toFixed(1) + '%)';
+      };
+      if (typeof fx.createConicGradient === 'function') {
+        // One seamless conic sweep for the whole spectrum.
+        const g = fx.createConicGradient(dev - spread / 2, exit[0], exit[1]);
+        const span = spread / TAU;
+        for (let i = 0; i <= 32; i++) g.addColorStop((i / 32) * span, shade(i / 32, i * 0.5));
+        g.addColorStop(Math.min(1, span + 0.002), 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        fx.fillStyle = g;
+        fx.fillRect(0, 0, W, H);
+      } else {
+        for (let i = 0; i < NW; i++) {
+          const f0 = i / NW, f1 = (i + 1.06) / NW;
+          const a0 = dev - spread / 2 + spread * f0, a1 = dev - spread / 2 + spread * f1;
+          fx.fillStyle = shade(f0, i * 0.25);
+          fx.beginPath();
+          fx.moveTo(exit[0], exit[1]);
+          fx.lineTo(exit[0] + Math.cos(a0) * L, exit[1] + Math.sin(a0) * L);
+          fx.lineTo(exit[0] + Math.cos(a1) * L, exit[1] + Math.sin(a1) * L);
+          fx.closePath();
+          fx.fill();
+        }
+      }
+      fx.globalCompositeOperation = 'destination-in';
+      const fall = fx.createRadialGradient(exit[0], exit[1], 0, exit[0], exit[1], 300);
+      fall.addColorStop(0, 'rgba(0,0,0,1)');
+      fall.addColorStop(0.6, 'rgba(0,0,0,0.85)');
+      fall.addColorStop(1, 'rgba(0,0,0,0.55)');
+      fx.fillStyle = fall;
+      fx.fillRect(0, 0, W, H);
+      fx.globalCompositeOperation = 'source-over';
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = clamp(br, 0, 1);
+      ctx.drawImage(fan, 0, 0);
+      // A blown-up copy acts as coloured spill light across the rest of the room.
+      ctx.globalAlpha = clamp(br * 0.3, 0, 1);
+      const sc = 1.9;
+      ctx.drawImage(fan, exit[0] * (1 - sc), exit[1] * (1 - sc), W * sc, H * sc);
+      ctx.globalAlpha = 1;
+      // The spectrum is still white where it leaves the glass.
+      const wh = ctx.createRadialGradient(exit[0], exit[1], 0, exit[0], exit[1], 46);
+      wh.addColorStop(0, 'rgba(255,255,255,' + (0.8 * br).toFixed(3) + ')');
+      wh.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = wh;
+      ctx.fillRect(exit[0] - 46, exit[1] - 46, 92, 92);
+
+      // Incoming beam, its faint reflection off the first face, and the path through the glass.
+      const glow = [[16, 0.1], [7, 0.3], [2.5, 0.95]];
+      beam(-10, by, entry[0], entry[1], br, glow);
+      if (inHit) {
+        const n = inHit.n, d = [1, 0];
+        const dn = d[0] * n[0] + d[1] * n[1];
+        const r = [d[0] - 2 * dn * n[0], d[1] - 2 * dn * n[1]];
+        beam(entry[0], entry[1], entry[0] + r[0] * 400, entry[1] + r[1] * 400, br * 0.3, glow);
+      }
+      beam(entry[0], entry[1], exit[0], exit[1], br * 0.8, glow);
+
+      // The prism itself: glassy body and bright edges.
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath();
+      ctx.moveTo(v[0][0], v[0][1]); ctx.lineTo(v[1][0], v[1][1]); ctx.lineTo(v[2][0], v[2][1]); ctx.closePath();
+      ctx.fillStyle = 'rgba(170,210,255,0.13)';
+      ctx.fill();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(150,200,255,0.25)';
+      ctx.lineWidth = 7;
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(225,240,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

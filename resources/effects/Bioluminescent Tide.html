@@ -1,0 +1,171 @@
+<head>
+  <title>Bioluminescent Tide</title>
+  <meta description="Night waves roll across a dark sea, waking glowing plankton that flare blue-green in their wake and slowly fade." />
+  <meta publisher="Lumora" />
+  <meta category="Nature" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="nature,ocean,sea,waves,plankton,bioluminescence,glow,night,beach,calm,blue,teal" />
+  <meta property="glowColor" label="Glow Color" type="color" default="#00f0c8" />
+  <meta property="waveSpeed" label="Wave Speed" type="number" min="1" max="100" default="40" />
+  <meta property="sparkle" label="Sparkle" tooltip="How many lone plankton flash in the open water" type="number" min="0" max="100" default="50" />
+  <meta property="intensity" label="Intensity" type="number" min="1" max="100" default="75" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const hash1 = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+    // Small seeded value noise.
+    const PERM = new Uint8Array(512);
+    (function () {
+      const p = []; let s = 90210;
+      for (let i = 0; i < 256; i++) p[i] = i;
+      for (let i = 255; i > 0; i--) { s = (s * 16807) % 2147483647; const j = s % (i + 1); const tmp = p[i]; p[i] = p[j]; p[j] = tmp; }
+      for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+    })();
+    function vnoise(x, y) {
+      let xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      xi &= 255; yi &= 255;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = PERM[PERM[xi] + yi], b = PERM[PERM[xi + 1] + yi], c = PERM[PERM[xi] + yi + 1], d = PERM[PERM[xi + 1] + yi + 1];
+      const top = a + (b - a) * u, bot = c + (d - c) * u;
+      return (top + (bot - top) * v) / 255;
+    }
+
+    const BW = 80, BH = 50, SX = W / BW, SY = H / BH;
+    const B = buffer(BW, BH);
+    const E = new Float32Array(BW * BH); // plankton excitation
+    const C = new Float32Array(BW * BH); // the breaking crest itself (instant)
+    const NW = 3;                        // waves in flight
+    const cfg = { glow: [0, 240, 200], waveSpeed: 40, sparkle: 50, intensity: 75 };
+    let t = 0, wt = 0.35, sparkAcc = 0;
+
+    function readProps() {
+      cfg.glow = hexRgb(get(() => glowColor, '#00f0c8'), '#00f0c8');
+      cfg.waveSpeed = clamp(num(get(() => waveSpeed), 40), 0, 100);
+      cfg.sparkle = clamp(num(get(() => sparkle), 50), 0, 100);
+      cfg.intensity = clamp(num(get(() => intensity), 75), 1, 100);
+    }
+    function onglowColorChanged() { readProps(); }
+    function onwaveSpeedChanged() { readProps(); }
+    function onsparkleChanged() { readProps(); }
+    function onintensityChanged() { readProps(); }
+
+    function bump(i, j, a) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const jj = j + dj; if (jj < 0 || jj >= BH) continue;
+        for (let di = -1; di <= 1; di++) {
+          const ii = i + di; if (ii < 0 || ii >= BW) continue;
+          E[jj * BW + ii] += a * (di === 0 && dj === 0 ? 1 : (di === 0 || dj === 0) ? 0.55 : 0.3);
+        }
+      }
+    }
+
+    function update(dt) {
+      t += dt;
+      wt += dt * (0.025 + cfg.waveSpeed * 0.0013);
+      if (t > 1e5) t = 0;
+      if (wt > 1e5) wt = 0.35;
+      const decay = Math.exp(-dt / 1.9);
+      for (let i = 0; i < E.length; i++) { E[i] *= decay; C[i] = 0; }
+
+      // Waves roll from the open sea (top) toward the shore (bottom), breaking as they go.
+      for (let k = 0; k < NW; k++) {
+        const ph = wt + k / NW, cyc = Math.floor(ph), p = ph - cyc;
+        const seed = cyc * 7 + k * 31;
+        const r1 = hash1(seed), r2 = hash1(seed + 1.7), r3 = hash1(seed + 3.1);
+        const y0 = -45 + p * 285;
+        const br = smooth(0.08, 0.5, p) * (1 - smooth(0.82, 1, p));
+        if (br <= 0.001) continue;
+        const tail = 5 + 20 * smooth(0.25, 0.85, p);
+        for (let i = 0; i < BW; i++) {
+          const x = (i + 0.5) * SX;
+          const cy = y0 + 13 * Math.sin(x * 0.016 + r1 * 6.28 + t * 0.25) + 6 * Math.sin(x * 0.041 + r2 * 6.28 - t * 0.4) + (r3 - 0.5) * 0.3 * (x - 160);
+          const lb = br * (0.5 + 0.5 * Math.sin(x * 0.022 + r2 * 9 + t * 0.15));
+          const jlo = Math.max(0, Math.floor((cy - tail * 4) / SY)), jhi = Math.min(BH - 1, Math.ceil((cy + 8) / SY));
+          for (let j = jlo; j <= jhi; j++) {
+            const y = (j + 0.5) * SY, d = y - cy;
+            const f = d < 0 ? Math.exp(d / tail) : Math.exp(-d * d / 20);
+            const tex = 0.3 + 0.7 * vnoise(x * 0.055 + k * 13, y * 0.08 - t * 0.35);
+            E[j * BW + i] += dt * 2.6 * lb * f * tex;
+            C[j * BW + i] += lb * Math.exp(-d * d / 40) * (0.4 + 0.6 * tex);
+          }
+        }
+      }
+
+      // Lone plankton flashes; churned water flashes more readily.
+      sparkAcc += dt * cfg.sparkle * 0.22;
+      let guard = 0;
+      while (sparkAcc >= 1 && guard++ < 40) {
+        sparkAcc -= 1;
+        const i = (Math.random() * BW) | 0, j = (Math.random() * BH) | 0;
+        bump(i, j, 0.35 + Math.random() * 0.35 + E[j * BW + i] * 0.8);
+      }
+      if (sparkAcc > 40) sparkAcc = 0;
+      for (let i = 0; i < E.length; i++) if (E[i] > 3) E[i] = 3;
+    }
+
+    function render() {
+      const d = B.d, g = cfg.glow;
+      const gain = 0.45 + cfg.intensity / 100 * 0.75;
+      // deep companion colour: the glow pushed toward ocean blue
+      const dr = g[0] * 0.25, dg = g[1] * 0.45 + 30, db = Math.max(g[2], 120) * 0.9 + 40;
+      let o = 0;
+      for (let j = 0; j < BH; j++) {
+        const y = (j + 0.5) * SY;
+        const depth = 0.6 + 0.4 * (1 - j / BH);
+        for (let i = 0; i < BW; i++, o += 4) {
+          const x = (i + 0.5) * SX;
+          const swell = 0.5 + 0.5 * Math.sin(x * 0.018 + y * 0.035 - t * 0.5 + Math.sin(y * 0.02 + t * 0.2) * 2);
+          const v = E[j * BW + i] + C[j * BW + i] * 0.9;
+          const a = 1 - Math.exp(-v * 1.25);
+          const hot = v > 1.3 ? (v - 1.3) * 0.28 : 0;
+          const m = clamp(a * 1.3, 0, 1);
+          const cr = dr + (g[0] - dr) * m, cg = dg + (g[1] - dg) * m, cb = db + (g[2] - db) * m;
+          d[o] = (2 + swell * 4) * depth + cr * a * gain + 255 * hot * gain;
+          d[o + 1] = (9 + swell * 14) * depth + cg * a * gain + 255 * hot * gain;
+          d[o + 2] = (24 + swell * 26) * depth + cb * a * gain + 255 * hot * gain;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    for (let i = 0; i < 90; i++) update(1 / 30); // warm up so waves are already glowing
+    requestAnimationFrame(frame);
+  </script>
+</body>

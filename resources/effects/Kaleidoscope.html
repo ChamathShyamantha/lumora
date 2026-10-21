@@ -1,0 +1,167 @@
+<head>
+  <title>Kaleidoscope</title>
+  <meta description="Mirrored wedges of molten colour turn and bloom around a glowing heart, like a hand-spun kaleidoscope." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="lively" />
+  <meta palette="rainbow" />
+  <meta tags="kaleidoscope,mirror,symmetry,mandala,psychedelic,trippy,colorful,rotating" />
+  <meta property="segments" label="Segments" type="number" min="3" max="16" step="1" default="8" tooltip="How many mirrored wedges make up the pattern" />
+  <meta property="rotationSpeed" label="Rotation Speed" type="number" min="0" max="100" default="30" />
+  <meta property="shapeSpeed" label="Shape Speed" type="number" min="1" max="100" default="40" tooltip="How quickly the coloured shapes inside the wedges move" />
+  <meta property="palette" label="Palette" type="combobox" values="Rainbow,Jewel,Sunset,Lagoon,Candy" default="Rainbow" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, TAU = Math.PI * 2;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    // Cyclic colour ramps; Rainbow is generated from hue.
+    const RAMPS = {
+      Jewel: [[255, 0, 110], [120, 0, 255], [0, 110, 255], [0, 230, 170], [255, 200, 0]],
+      Sunset: [[255, 30, 60], [255, 120, 0], [255, 220, 40], [255, 60, 140], [150, 20, 200]],
+      Lagoon: [[0, 60, 255], [0, 200, 255], [0, 255, 170], [60, 120, 255], [180, 255, 240]],
+      Candy: [[255, 90, 180], [160, 110, 255], [90, 220, 255], [255, 240, 120], [255, 140, 110]]
+    };
+    const LUT = new Uint8ClampedArray(256 * 3);
+    let lutName = null;
+    function buildLut(name) {
+      const stops = RAMPS[name];
+      for (let i = 0; i < 256; i++) {
+        const o = i * 3;
+        if (!stops) {
+          const h = (i / 256) * 6, k = h | 0, f = h - k;
+          const rgb = [[1, f, 0], [1 - f, 1, 0], [0, 1, f], [0, 1 - f, 1], [f, 0, 1], [1, 0, 1 - f]][k];
+          LUT[o] = rgb[0] * 255; LUT[o + 1] = rgb[1] * 255; LUT[o + 2] = rgb[2] * 255;
+          continue;
+        }
+        const t = (i / 256) * stops.length, k = t | 0;
+        let f = t - k; f = f * f * (3 - 2 * f);
+        const a = stops[k % stops.length], b = stops[(k + 1) % stops.length];
+        LUT[o] = a[0] + (b[0] - a[0]) * f;
+        LUT[o + 1] = a[1] + (b[1] - a[1]) * f;
+        LUT[o + 2] = a[2] + (b[2] - a[2]) * f;
+      }
+      lutName = name;
+    }
+
+    // Shapes living inside one wedge; mirroring multiplies them into the full mandala.
+    const NS = 6;
+    const SH = [];
+    for (let k = 0; k < NS; k++) {
+      SH.push({
+        fr: 0.21 + 0.13 * ((k * 37) % 7) / 7, pr: k * 1.9,
+        fa: 0.17 + 0.11 * ((k * 53) % 5) / 5, pa: k * 2.7,
+        size: 14 + ((k * 29) % 11) * 1.6,
+        hue: k / NS,
+        diamond: k % 2 === 1
+      });
+    }
+    const su = new Float32Array(NS), sv = new Float32Array(NS), sr2 = new Float32Array(NS), sh = new Float32Array(NS);
+
+    const B = buffer(128, 80);
+    const cfg = { seg: 8, rot: 30, shape: 40, pal: 'Rainbow' };
+    let rot = 0, t = 0;
+
+    function readProps() {
+      cfg.seg = Math.round(clamp(num(get(() => segments), 8), 3, 16));
+      cfg.rot = clamp(num(get(() => rotationSpeed), 30), 0, 100);
+      cfg.shape = clamp(num(get(() => shapeSpeed), 40), 0, 100);
+      cfg.pal = String(get(() => palette, 'Rainbow'));
+      if (lutName !== cfg.pal) buildLut(cfg.pal);
+    }
+    function onsegmentsChanged() { readProps(); }
+    function onrotationSpeedChanged() { readProps(); }
+    function onshapeSpeedChanged() { readProps(); }
+    function onpaletteChanged() { readProps(); }
+
+    function update(dt) {
+      rot += dt * cfg.rot * 0.008;
+      t += dt * (0.15 + cfg.shape * 0.025);
+      if (rot > TAU * 1000) rot -= TAU * 1000;
+      if (t > 1e5) t = 0;
+    }
+
+    function render() {
+      const wedge = TAU / cfg.seg, half = wedge / 2;
+      for (let k = 0; k < NS; k++) {
+        const s = SH[k];
+        const rr = 18 + 95 * (0.5 + 0.5 * Math.sin(t * s.fr + s.pr));
+        const aa = half * (0.5 + 0.9 * Math.sin(t * s.fa + s.pa));
+        su[k] = rr * Math.cos(aa); sv[k] = rr * Math.sin(aa);
+        const sz = s.size * (1 + 0.35 * Math.sin(t * 0.7 + k));
+        sr2[k] = sz * sz;
+        sh[k] = s.hue;
+      }
+      const drift = t * 0.045;
+      const d = B.d, bw = B.w, bh = B.h, sx = W / bw, sy = H / bh;
+      let o = 0;
+      for (let j = 0; j < bh; j++) {
+        const dy = (j + 0.5) * sy - 100;
+        for (let i = 0; i < bw; i++, o += 4) {
+          const dx = (i + 0.5) * sx - 160;
+          const r = Math.sqrt(dx * dx + dy * dy);
+          let a = Math.atan2(dy, dx) - rot;
+          a -= Math.floor(a / wedge) * wedge;
+          if (a > half) a = wedge - a;
+          const u = r * Math.cos(a), v = r * Math.sin(a);
+          let f = 0, hs = 0, ws = 0;
+          for (let k = 0; k < NS; k++) {
+            const du = u - su[k], dv = v - sv[k];
+            const q = SH[k].diamond ? (Math.abs(du) + Math.abs(dv)) * 0.8 : Math.sqrt(du * du + dv * dv);
+            const w = sr2[k] / (q * q + sr2[k] * 0.35);
+            f += w; hs += w * w * w * sh[k]; ws += w * w * w;
+          }
+          // Ripples radiating from the centre tie the shapes together.
+          const ring = 0.5 + 0.5 * Math.sin(r * 0.075 - t * 1.6);
+          const idx = hs / ws + r * 0.0022 + ring * 0.06 - drift;
+          const li = (((idx - Math.floor(idx)) * 256) | 0) * 3;
+          let s = (f - 0.9) * 1.6;
+          s = s < 0 ? 0 : s > 1 ? 1 : s;
+          s = s * s * (3 - 2 * s);
+          let br = 0.14 + 0.86 * s;
+          br *= 0.78 + 0.22 * ring;
+          const core = Math.max(0, 1 - r / 26);
+          const wh = core * core * 0.7;
+          d[o] = LUT[li] * br + 255 * wh;
+          d[o + 1] = LUT[li + 1] * br + 255 * wh;
+          d[o + 2] = LUT[li + 2] * br + 255 * wh;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

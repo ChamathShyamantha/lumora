@@ -1,0 +1,154 @@
+<head>
+  <title>Lissajous Glow</title>
+  <meta description="A thick neon harmonograph pen sweeps out slowly morphing Lissajous figures, trailing light behind it." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="neon" />
+  <meta tags="lissajous,harmonograph,oscilloscope,curve,neon,glow,math,pendulum,trail" />
+  <meta property="lineColor" label="Line Colour" type="color" default="#ff2bd6" />
+  <meta property="morphSpeed" label="Morph Speed" type="number" min="1" max="100" default="35" tooltip="How fast the figure's frequency ratios drift and the pen travels" />
+  <meta property="trailLength" label="Trail Length" type="number" min="5" max="100" default="60" />
+  <meta property="tailShift" label="Tail Colour Shift" type="number" min="0" max="100" default="45" tooltip="How far the colour drifts around the colour wheel along the trail" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, TAU = Math.PI * 2;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    // Rotate a colour around the grey axis (hue shift that keeps brightness).
+    function hueRotate(c, deg) {
+      const a = (deg * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a);
+      const r = c[0], g = c[1], b = c[2];
+      return [
+        clamp(r * (0.213 + cs * 0.787 - sn * 0.213) + g * (0.715 - cs * 0.715 - sn * 0.715) + b * (0.072 - cs * 0.072 + sn * 0.928), 0, 255),
+        clamp(r * (0.213 - cs * 0.213 + sn * 0.143) + g * (0.715 + cs * 0.285 + sn * 0.14) + b * (0.072 - cs * 0.072 - sn * 0.283), 0, 255),
+        clamp(r * (0.213 - cs * 0.213 - sn * 0.787) + g * (0.715 - cs * 0.715 + sn * 0.715) + b * (0.072 + cs * 0.928 + sn * 0.072), 0, 255)
+      ];
+    }
+    const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    const cfg = { col: [255, 43, 214], morph: 35, trail: 60, shift: 45 };
+    let T = 0, pen = 0;
+    const NP = 240;
+    const PX = new Float32Array(NP + 1), PY = new Float32Array(NP + 1);
+    let tailCol = [255, 43, 214];
+
+    function readProps() {
+      cfg.col = hexRgb(get(() => lineColor, '#ff2bd6'), '#ff2bd6');
+      // A black line would be invisible on LEDs; lift it to a usable brightness.
+      const m = Math.max(cfg.col[0], cfg.col[1], cfg.col[2]);
+      if (m < 120) { const k = m < 1 ? 0 : 120 / m; cfg.col = m < 1 ? [120, 120, 120] : cfg.col.map((v) => v * k); }
+      cfg.morph = clamp(num(get(() => morphSpeed), 35), 0, 100);
+      cfg.trail = clamp(num(get(() => trailLength), 60), 0, 100);
+      cfg.shift = clamp(num(get(() => tailShift), 45), 0, 100);
+    }
+    function onlineColorChanged() { readProps(); }
+    function onmorphSpeedChanged() { readProps(); }
+    function ontrailLengthChanged() { readProps(); }
+    function ontailShiftChanged() { readProps(); }
+
+    function update(dt) {
+      const sp = 0.2 + cfg.morph * 0.02;
+      T += dt * sp;
+      pen += dt * (1.1 + sp * 0.9);
+      if (T > 1e5) T = 0;
+      if (pen > TAU * 1e4) pen -= TAU * 1e4;
+    }
+
+    // Two pendulums per axis, with ratios that wander between consonant values.
+    function curve(p, out, i, fx, fy, dl, fx2, fy2) {
+      out[0][i] = 160 + 118 * Math.sin(fx * p + dl) + 22 * Math.sin(fx2 * p + T * 0.7);
+      out[1][i] = 100 + 76 * Math.sin(fy * p) + 10 * Math.sin(fy2 * p + 1.3);
+    }
+
+    function strokeChunk(c, lw, al) {
+      const CH = 20, per = NP / CH;
+      const f = (c + 1) / CH; // near 0 at the tail end, 1 at the pen
+      const k = f * f * (3 - 2 * f);
+      const head = cfg.col, tail = tailCol;
+      const cc = [tail[0] + (head[0] - tail[0]) * f, tail[1] + (head[1] - tail[1]) * f, tail[2] + (head[2] - tail[2]) * f];
+      ctx.strokeStyle = rgba(cc, al * 0.88 * k);
+      ctx.lineWidth = lw * (0.45 + 0.55 * k);
+      ctx.beginPath();
+      const a = c * per, b = (c + 1) * per;
+      ctx.moveTo(PX[a], PY[a]);
+      for (let i = a + 1; i <= b; i++) ctx.lineTo(PX[i], PY[i]);
+      ctx.stroke();
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+
+      const fx = 3 + 0.5 * Math.sin(T * 0.13) + 0.25 * Math.sin(T * 0.071 + 1);
+      const fy = 2 + 0.5 * Math.sin(T * 0.097 + 2.2);
+      const dl = T * 0.45;
+      const fx2 = 5 + Math.sin(T * 0.05), fy2 = 4 + Math.sin(T * 0.06 + 1);
+      const span = TAU * (0.25 + cfg.trail * 0.022);
+      const out = [PX, PY];
+      for (let i = 0; i <= NP; i++) curve(pen - span * (1 - i / NP), out, i, fx, fy, dl, fx2, fy2);
+
+      const head = cfg.col, tail = hueRotate(cfg.col, cfg.shift * 1.6);
+      tailCol = tail;
+      // Ambient halo around the pen keeps nearby LEDs softly lit.
+      const hx = PX[NP], hy = PY[NP];
+      const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, 90);
+      g.addColorStop(0, rgba(head, 0.35));
+      g.addColorStop(1, rgba(head, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineCap = 'butt';
+      ctx.lineJoin = 'round';
+      const CH = 20;
+      const passes = [[30, 0.07], [15, 0.2], [6, 0.85]];
+      for (let pi = 0; pi < passes.length; pi++) {
+        const lw = passes[pi][0], al = passes[pi][1];
+        // Soft passes use round caps; the core gets a faint continuous underlay to hide seams.
+        ctx.lineCap = pi < 2 ? 'round' : 'butt';
+        if (pi < 2) {
+          for (let c = 0; c < CH; c++) strokeChunk(c, lw, al);
+          continue;
+        }
+        ctx.strokeStyle = rgba(tail, al * 0.12);
+        ctx.lineWidth = lw * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(PX[0], PY[0]);
+        for (let i = 1; i <= NP; i++) ctx.lineTo(PX[i], PY[i]);
+        ctx.stroke();
+        for (let c = 0; c < CH; c++) strokeChunk(c, lw, al);
+      }
+      // White-hot pen tip.
+      const tip = ctx.createRadialGradient(hx, hy, 0, hx, hy, 14);
+      tip.addColorStop(0, 'rgba(255,255,255,0.9)');
+      tip.addColorStop(0.4, rgba(head, 0.6));
+      tip.addColorStop(1, rgba(head, 0));
+      ctx.fillStyle = tip;
+      ctx.fillRect(hx - 14, hy - 14, 28, 28);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

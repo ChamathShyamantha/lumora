@@ -1,0 +1,702 @@
+[
+ {
+  "title": "Audio Spectrum",
+  "slug": "audio-spectrum",
+  "description": "A live spectrum analyzer that dances to whatever is playing.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "rainbow",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Aurora",
+  "slug": "aurora",
+  "description": "Flowing curtains of northern light rippling across a dark sky.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Bass Pulse",
+  "slug": "bass-pulse",
+  "description": "Your whole setup thumps and flashes with the bass and every beat.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "neon",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Beat Ripples",
+  "slug": "beat-ripples",
+  "description": "Every beat launches a colorful shockwave ring from the center.",
+  "category": "Party & Music",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Beat Sequencer",
+  "slug": "beat-sequencer",
+  "description": "A sixteen-step drum-machine chase that lands one glowing pad on every beat.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "neon",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Bioluminescent Tide",
+  "slug": "bioluminescent-tide",
+  "description": "Night waves roll across a dark sea, waking glowing plankton that flare blue-green in their wake and slowly fade.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Block Drop",
+  "slug": "block-drop",
+  "description": "Bright falling blocks lock into place on their own, and every finished line flashes white before it vanishes.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Breathing",
+  "slug": "breathing",
+  "description": "A slow, soothing glow that fades in and out like a sleeping breath.",
+  "category": "Classic",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Breathing Coach",
+  "slug": "breathing-coach",
+  "description": "A guiding orb of light that swells as you breathe in, rests while you hold, and softens away as you breathe out.",
+  "category": "Wellness & Focus",
+  "energy": "calm",
+  "palette": "pastel",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Candlelight",
+  "slug": "candlelight",
+  "description": "A cluster of candles, each flickering on its own breath of air, pooling soft amber light around them.",
+  "category": "Cozy & Seasonal",
+  "energy": "calm",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Cherry Blossom Wind",
+  "slug": "cherry-blossom-wind",
+  "description": "Soft pink petals tumble and swirl on spring gusts across a gentle pastel sky.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "pastel",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Chomp Chase",
+  "slug": "chomp-chase",
+  "description": "A hungry snap-box chomper gobbles dots down a glowing corridor with a gang of blob ghosts on its tail, until a power pellet turns the tables.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Color Cycle",
+  "slug": "color-cycle",
+  "description": "Your whole setup glides smoothly through every hue.",
+  "category": "Classic",
+  "energy": "calm",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Comet Passage",
+  "slug": "comet-passage",
+  "description": "Now and then a comet glides silently across a quiet, twinkling sky, trailing a long luminous ion tail and a soft veil of dust.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Daylight Sync",
+  "slug": "daylight-sync",
+  "description": "Your lights follow the real sky: amber sunrise, clear bright daylight, golden hour and a deep blue night, blended through the day.",
+  "category": "Wellness & Focus",
+  "energy": "calm",
+  "palette": "natural",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Desert Mirage",
+  "slug": "desert-mirage",
+  "description": "Heat haze ripples over sunset dunes while a phantom lake of sky shimmers on the sand.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Digital Rain",
+  "slug": "digital-rain",
+  "description": "Cascading columns of code falling down your setup with glowing trails.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Disco Floor",
+  "slug": "disco-floor",
+  "description": "A glowing seventies dance floor whose tiles flip colour in checkers, waves and scatters to the beat.",
+  "category": "Party & Music",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Emergency Lights",
+  "slug": "emergency-lights",
+  "description": "A rooftop light bar in red and blue that double-flashes, wig-wags and spins its rotating beacons.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Event Horizon",
+  "slug": "event-horizon",
+  "description": "A black hole holds court at the centre of your setup, its glowing accretion disk swirling around a perfect shadow and bent into a blazing ring of light.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Fire",
+  "slug": "fire",
+  "description": "Roaring flames licking upward from the bottom of your setup.",
+  "category": "Nature",
+  "energy": "lively",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Firefly Sync",
+  "slug": "firefly-sync",
+  "description": "Fireflies drift over a dusk meadow, blinking out of step until they fall into rhythm and flash together, then scatter and begin again.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "natural",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Fireworks Night",
+  "slug": "fireworks-night",
+  "description": "Rockets streak up from the rooftops and bloom into drifting showers of colour, with a grand finale now and then.",
+  "category": "Cozy & Seasonal",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Focus Timer",
+  "slug": "focus-timer",
+  "description": "A Pomodoro timer in light: calm colour slowly rises through your focus session, then a soft pulse invites a break.",
+  "category": "Wellness & Focus",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Forest Canopy",
+  "slug": "forest-canopy",
+  "description": "Lying under the trees on a summer afternoon: golden sun spots slip and shimmer through swaying, backlit leaves.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "natural",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Galaxy Spin",
+  "slug": "galaxy-spin",
+  "description": "A spiral galaxy wheels slowly around its glowing heart, thousands of stars strung along sweeping arms that fade from cyan to violet.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Glacier Light",
+  "slug": "glacier-light",
+  "description": "Deep inside a blue glacier: slow refracted light bands drift through ancient ice, catching faint glints along hairline cracks.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Gradient Flow",
+  "slug": "gradient-flow",
+  "description": "A three-color gradient that scrolls endlessly at any angle.",
+  "category": "Classic",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Hex Pulse",
+  "slug": "hex-pulse",
+  "description": "A honeycomb of neon tiles flares and fades as shockwaves ripple outward from random sparks.",
+  "category": "Abstract",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Hyperspace Jump",
+  "slug": "hyperspace-jump",
+  "description": "Cruise through a quiet starfield until the stars stretch into blazing streaks, a white flash hurls you across the galaxy, and calm returns under a new sky.",
+  "category": "Space",
+  "energy": "intense",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Ink Bloom",
+  "slug": "ink-bloom",
+  "description": "Drops of coloured ink bloom open and curl into one another like ink falling through still water.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "natural",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Kaleidoscope",
+  "slug": "kaleidoscope",
+  "description": "Mirrored wedges of molten colour turn and bloom around a glowing heart, like a hand-spun kaleidoscope.",
+  "category": "Abstract",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Laser Show",
+  "slug": "laser-show",
+  "description": "Club lasers fan and scissor through drifting haze, flaring wider on the bass and splaying on the highs.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "neon",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Lava Fissures",
+  "slug": "lava-fissures",
+  "description": "A dark cooling lava crust split by glowing cracks that slowly shift, with molten surges flaring up through the seams.",
+  "category": "Nature",
+  "energy": "lively",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Lava Lamp",
+  "slug": "lava-lamp",
+  "description": "Soft glowing blobs that drift, merge and split like a retro lava lamp.",
+  "category": "Cozy & Seasonal",
+  "energy": "calm",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Life Colony",
+  "slug": "life-colony",
+  "description": "Conway's Game of Life as a neon colony: cells glow, age through colour and leave fading ghost trails.",
+  "category": "Abstract",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Light Cycles",
+  "slug": "light-cycles",
+  "description": "Glowing riders race across a dark grid, carving solid walls of light and swerving to survive until one crashes in a burst.",
+  "category": "Retro & Gaming",
+  "energy": "intense",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Liquid Chrome",
+  "slug": "liquid-chrome",
+  "description": "A slow, mirror-bright pool of liquid metal rolls and ripples, catching studio light on every swell.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "mono",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Lissajous Glow",
+  "slug": "lissajous-glow",
+  "description": "A thick neon harmonograph pen sweeps out slowly morphing Lissajous figures, trailing light behind it.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Living Cells",
+  "slug": "living-cells",
+  "description": "Soft pastel cells drift, divide and merge beneath a glowing web of membranes.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "pastel",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Low Health Warning",
+  "slug": "low-health-warning",
+  "description": "A heart monitor races across the screen while the edges throb blood red with every beat, like your character is one hit from game over.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Maze Runner",
+  "slug": "maze-runner",
+  "description": "A neon maze carves itself out block by block, then a blazing path races from start to finish before it all dissolves.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Meteor Shower",
+  "slug": "meteor-shower",
+  "description": "Shooting stars streak across your setup trailing long glowing tails.",
+  "category": "Space",
+  "energy": "lively",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Moire Drift",
+  "slug": "moire-drift",
+  "description": "Overlapping line and ring gratings slide past each other, conjuring broad rivers of interference light.",
+  "category": "Abstract",
+  "energy": "lively",
+  "palette": "mono",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Nebula Drift",
+  "slug": "nebula-drift",
+  "description": "Luminous clouds of interstellar gas fold slowly into one another while a few bright stars shine through the haze.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Orbital Dance",
+  "slug": "orbital-dance",
+  "description": "Glowing worlds loop and slingshot around a pair of twin suns, painting the dark with fading ribbons of neon light.",
+  "category": "Space",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Pixel Invaders",
+  "slug": "pixel-invaders",
+  "description": "A blocky alien fleet marches and drops while a lone cannon blasts it apart in bursts of neon light.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Plasma",
+  "slug": "plasma",
+  "description": "Classic demoscene plasma: liquid, ever-shifting blobs of color.",
+  "category": "Abstract",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Pong Rally",
+  "slug": "pong-rally",
+  "description": "Two tireless paddles trade a glowing ball that streaks faster with every hit until someone finally misses.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "mono",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Pool Caustics",
+  "slug": "pool-caustics",
+  "description": "A living net of sunlight dances across the floor of a clear swimming pool as ripples bend the light.",
+  "category": "Nature",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Prism Split",
+  "slug": "prism-split",
+  "description": "A white beam strikes a slowly turning glass prism and fans out into a sweeping rainbow.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Pulsar Beacon",
+  "slug": "pulsar-beacon",
+  "description": "A spinning neutron star sweeps twin searchlight beams through cosmic dust, flashing a ripple of light every time a beam swings past.",
+  "category": "Space",
+  "energy": "lively",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Rainbow Wave",
+  "slug": "rainbow-wave",
+  "description": "Smooth rainbow bands sweeping across your setup in any direction.",
+  "category": "Classic",
+  "energy": "lively",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Rainy Window",
+  "slug": "rainy-window",
+  "description": "Raindrops bead and slide down a fogged window while the city glows behind it in soft, blurred lights.",
+  "category": "Cozy & Seasonal",
+  "energy": "calm",
+  "palette": "natural",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Ringed Planet",
+  "slug": "ringed-planet",
+  "description": "A pastel gas giant turns slowly inside its tilted rings, banded clouds drifting past a soft terminator while little moons glide around it.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "pastel",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Ripples",
+  "slug": "ripples",
+  "description": "Glowing rings spread outward from random points like raindrops on a pond.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Screen Ambience",
+  "slug": "screen-ambience",
+  "description": "Extends your screen onto your lights by mirroring its colors in real time.",
+  "category": "Screen Sync",
+  "energy": "lively",
+  "palette": "natural",
+  "music": false,
+  "screen": true
+ },
+ {
+  "title": "Snake Autopilot",
+  "slug": "snake-autopilot",
+  "description": "A glowing snake steers itself across the grid, hunting food and growing longer until it finally gets boxed in.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Snowfall Evening",
+  "slug": "snowfall-evening",
+  "description": "Soft snow drifts down through a deep blue winter dusk, lit from below by the warm glow of a distant town.",
+  "category": "Cozy & Seasonal",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Solar Surface",
+  "slug": "solar-surface",
+  "description": "Hover just above a seething star: boiling granules churn across its face while looping flares of plasma arc off the glowing limb.",
+  "category": "Space",
+  "energy": "lively",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Solid Color",
+  "slug": "solid-color",
+  "description": "One steady color across your entire setup.",
+  "category": "Classic",
+  "energy": "calm",
+  "palette": "mono",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Spectrum Tunnel",
+  "slug": "spectrum-tunnel",
+  "description": "Fly down a winding tunnel built from rings of sound, each one stamped with the music at the moment it was born.",
+  "category": "Party & Music",
+  "energy": "intense",
+  "palette": "rainbow",
+  "music": true,
+  "screen": false
+ },
+ {
+  "title": "Spiral Vortex",
+  "slug": "spiral-vortex",
+  "description": "A hypnotic multi-armed spiral spinning around the center of your setup.",
+  "category": "Abstract",
+  "energy": "intense",
+  "palette": "rainbow",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Supernova Cycle",
+  "slug": "supernova-cycle",
+  "description": "A star swells into a burning giant, collapses in on itself and detonates in a blinding shockwave of glowing debris, before a new star kindles from the ashes.",
+  "category": "Space",
+  "energy": "intense",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Synthwave Horizon",
+  "slug": "synthwave-horizon",
+  "description": "An endless neon grid rolls toward you beneath a striped retro sun and a glowing dusk sky.",
+  "category": "Retro & Gaming",
+  "energy": "lively",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Thunderstorm",
+  "slug": "thunderstorm",
+  "description": "Heavy clouds roll overhead through sheets of rain until a forked bolt tears down and floods the whole setup with light.",
+  "category": "Nature",
+  "energy": "intense",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Turing Patterns",
+  "slug": "turing-patterns",
+  "description": "A living reaction–diffusion chemistry grows coral, spots and labyrinths that slowly spread and renew themselves.",
+  "category": "Abstract",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Twinkle Stars",
+  "slug": "twinkle-stars",
+  "description": "Soft points of light that fade in and out like a starry night.",
+  "category": "Space",
+  "energy": "calm",
+  "palette": "cool",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "VHS Glitch",
+  "slug": "vhs-glitch",
+  "description": "A worn-out tape signal: colour bars tear sideways, channels split apart and bursts of static roll through the picture.",
+  "category": "Retro & Gaming",
+  "energy": "intense",
+  "palette": "neon",
+  "music": false,
+  "screen": false
+ },
+ {
+  "title": "Vintage String Lights",
+  "slug": "vintage-string-lights",
+  "description": "Swags of big old-fashioned glass bulbs glowing against the night, gently twinkling like a porch at the holidays.",
+  "category": "Cozy & Seasonal",
+  "energy": "calm",
+  "palette": "warm",
+  "music": false,
+  "screen": false
+ }
+]

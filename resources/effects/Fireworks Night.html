@@ -1,0 +1,181 @@
+<head>
+  <title>Fireworks Night</title>
+  <meta description="Rockets streak up from the rooftops and bloom into drifting showers of colour, with a grand finale now and then." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="lively" />
+  <meta palette="rainbow" />
+  <meta tags="fireworks,new year,celebration,4th of july,diwali,bonfire night,sparks,rockets,holiday,party" />
+  <meta property="launchRate" label="Launch Rate" type="number" min="1" max="100" default="45" />
+  <meta property="burstSize" label="Burst Size" type="number" min="1" max="100" default="60" />
+  <meta property="colorMode" label="Colour Mode" type="combobox" values="Rainbow,Gold & Silver,Two-Tone,Pastel" default="Rainbow" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      const o = i === 0 ? [v, t, p] : i === 1 ? [q, v, p] : i === 2 ? [p, v, t] : i === 3 ? [p, q, v] : i === 4 ? [t, p, v] : [v, p, q];
+      return [o[0] * 255, o[1] * 255, o[2] * 255];
+    }
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    // sparks are drawn into a separate layer that fades slowly, leaving trails
+    const layer = document.createElement('canvas');
+    layer.width = W; layer.height = H;
+    const lx = layer.getContext('2d');
+    lx.fillStyle = '#000';
+    lx.fillRect(0, 0, W, H);
+
+    const cfg = { rate: 45, size: 60, mode: 'Rainbow' };
+    function readProps() {
+      cfg.rate = clamp(num(get(() => launchRate), 45), 0, 100);
+      cfg.size = clamp(num(get(() => burstSize), 60), 0, 100);
+      cfg.mode = String(get(() => colorMode, 'Rainbow'));
+    }
+    function onlaunchRateChanged() { readProps(); }
+    function onburstSizeChanged() { readProps(); }
+    function oncolorModeChanged() { readProps(); }
+
+    const rockets = [], sparks = [], flashes = [];
+    let t = 0, nextLaunch = 0.3, nextFinale = 28, finale = 0;
+
+    function palette() {
+      const r = Math.random();
+      switch (cfg.mode) {
+        case 'Gold & Silver': return r < 0.6 ? [[255, 160, 40], [255, 205, 110]] : [[190, 205, 255], [255, 180, 80]];
+        case 'Two-Tone': { const h = Math.random(); return [hsv(h, 1, 1), hsv(h + 0.5, 0.9, 1)]; }
+        case 'Pastel': { const h = Math.random(); return [hsv(h, 0.45, 1), hsv(h + 0.15, 0.4, 1)]; }
+        default: { const h = Math.random(); return r < 0.3 ? [hsv(h, 1, 1), hsv(h + 0.33, 1, 1)] : [hsv(h, 1, 1), hsv(h + 0.05, 0.8, 1)]; }
+      }
+    }
+
+    function launch() {
+      rockets.push({ x: 40 + Math.random() * 240, y: H + 4, vx: (Math.random() - 0.5) * 30, vy: -(150 + Math.random() * 55), fuse: 0.75 + Math.random() * 0.45 });
+    }
+
+    function burst(x, y) {
+      const [c1, c2] = palette();
+      const big = cfg.size / 100;
+      const kind = Math.random();
+      const n = Math.round(40 + big * 90);
+      const speed = 55 + big * 90;
+      const willow = kind < 0.2;
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        let s;
+        if (kind > 0.8) s = speed * (0.9 + Math.random() * 0.1); // ring
+        else s = speed * Math.sqrt(Math.random()) * (0.6 + 0.4 * Math.random()) + 8;
+        const inner = s < speed * 0.55;
+        sparks.push({
+          x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+          life: 0, max: (willow ? 2.6 : 1.5) + Math.random() * 0.8,
+          c: inner ? c2 : c1, drag: willow ? 2.2 : 1.4, g: willow ? 34 : 46, r: 1.6 + Math.random() * 1.2
+        });
+      }
+      if (sparks.length > 1600) sparks.splice(0, sparks.length - 1600);
+      flashes.push({ x, y, c: c1, a: 1, r: 70 + big * 70 });
+    }
+
+    function update(dt) {
+      t += dt;
+      const interval = 2.8 - cfg.rate / 100 * 2.35;
+      nextLaunch -= dt;
+      nextFinale -= dt;
+      if (nextFinale <= 0) { finale = 3.2; nextFinale = 30 + Math.random() * 20; }
+      if (finale > 0) {
+        finale -= dt;
+        if (nextLaunch > 0.22) nextLaunch = 0.22;
+      }
+      if (nextLaunch <= 0) {
+        launch();
+        nextLaunch = finale > 0 ? 0.16 + Math.random() * 0.12 : interval * (0.6 + Math.random() * 0.8);
+      }
+      for (let i = rockets.length - 1; i >= 0; i--) {
+        const r = rockets[i];
+        r.vy += 60 * dt;
+        r.x += r.vx * dt; r.y += r.vy * dt;
+        r.fuse -= dt;
+        if (r.fuse <= 0 || r.vy > -20) { burst(r.x, r.y); rockets.splice(i, 1); }
+      }
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const s = sparks[i];
+        s.life += dt;
+        if (s.life >= s.max) { sparks.splice(i, 1); continue; }
+        const k = Math.exp(-dt * s.drag);
+        s.vx *= k; s.vy = s.vy * k + s.g * dt;
+        s.x += s.vx * dt; s.y += s.vy * dt;
+      }
+      for (let i = flashes.length - 1; i >= 0; i--) {
+        flashes[i].a *= Math.exp(-dt / 0.35);
+        if (flashes[i].a < 0.02) flashes.splice(i, 1);
+      }
+    }
+
+    function render(dt) {
+      // fade the trail layer
+      lx.globalCompositeOperation = 'source-over';
+      lx.fillStyle = 'rgba(0,0,0,' + clamp(1 - Math.exp(-dt * 4.5), 0, 1).toFixed(3) + ')';
+      lx.fillRect(0, 0, W, H);
+      lx.globalCompositeOperation = 'lighter';
+      for (const r of rockets) {
+        lx.fillStyle = 'rgba(255,200,140,0.9)';
+        lx.beginPath(); lx.arc(r.x, r.y, 2.2, 0, Math.PI * 2); lx.fill();
+        lx.fillStyle = 'rgba(255,140,60,0.25)';
+        lx.beginPath(); lx.arc(r.x, r.y, 6, 0, Math.PI * 2); lx.fill();
+      }
+      for (const s of sparks) {
+        const f = 1 - s.life / s.max;
+        // a little crackle as each spark burns out
+        const ramp = clamp(s.life / 0.3, 0.2, 1);
+        const a = ramp * (f > 0.3 ? f : f * (0.6 + 0.4 * Math.sin(s.life * 40 + s.x)));
+        lx.fillStyle = rgba(s.c, a * 0.7);
+        lx.beginPath(); lx.arc(s.x, s.y, s.r, 0, Math.PI * 2); lx.fill();
+        lx.fillStyle = rgba(s.c, a * 0.13);
+        lx.beginPath(); lx.arc(s.x, s.y, s.r * 3.4, 0, Math.PI * 2); lx.fill();
+      }
+      lx.globalCompositeOperation = 'source-over';
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, '#01020a');
+      sky.addColorStop(0.75, '#070a22');
+      sky.addColorStop(1, '#1a1030');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      for (const fl of flashes) {
+        const g = ctx.createRadialGradient(fl.x, fl.y, 0, fl.x, fl.y, fl.r);
+        g.addColorStop(0, rgba(fl.c, fl.a * 0.45));
+        g.addColorStop(0.4, rgba(fl.c, fl.a * 0.16));
+        g.addColorStop(1, rgba(fl.c, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(fl.x - fl.r, fl.y - fl.r, fl.r * 2, fl.r * 2);
+      }
+      ctx.drawImage(layer, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render(dt);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

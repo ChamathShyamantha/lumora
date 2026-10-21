@@ -1,0 +1,130 @@
+<head>
+  <title>Bass Pulse</title>
+  <meta description="Your whole setup thumps and flashes with the bass and every beat." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="audio,music,party,pulse" />
+  <meta property="color" label="Color" type="color" default="#ff0040" />
+  <meta property="rainbowOnBeat" label="Rainbow on Beat" type="boolean" default="1" tooltip="Jump to a new hue on every beat" />
+  <meta property="sensitivity" label="Sensitivity" type="number" min="1" max="100" default="50" />
+  <meta property="decay" label="Decay" type="number" min="1" max="100" default="50" tooltip="How quickly each pulse fades" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const bool = (v, d) => (v === undefined || v === null ? d : v === true || v === 1 || v === '1' || v === 'true');
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      switch (i) {
+        case 0: return [v, t, p];
+        case 1: return [q, v, p];
+        case 2: return [p, v, t];
+        case 3: return [p, q, v];
+        case 4: return [t, p, v];
+        default: return [v, p, q];
+      }
+    }
+    function rgbToHsv(r, g, b) {
+      r /= 255; g /= 255; b /= 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      let h = 0;
+      if (d > 0) {
+        if (mx === r) h = ((g - b) / d) % 6;
+        else if (mx === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h /= 6;
+        if (h < 0) h += 1;
+      }
+      return [h, mx === 0 ? 0 : d / mx, mx];
+    }
+    const rgb = (c, k) => 'rgb(' + Math.round(clamp(c[0] * k, 0, 255)) + ',' + Math.round(clamp(c[1] * k, 0, 255)) + ',' + Math.round(clamp(c[2] * k, 0, 255)) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+
+    const cfg = { rgb: [255, 0, 64], rainbow: true, sens: 50, decay: 50 };
+    let env = 0, flash = 0, hueOff = 0, hueShown = 0, lastBeat = null, idleW = 1, t = 0;
+
+    function readProps() {
+      cfg.rgb = hexRgb(get(() => color, '#ff0040'), '#ff0040');
+      cfg.rainbow = bool(get(() => rainbowOnBeat), true);
+      cfg.sens = clamp(num(get(() => sensitivity), 50), 1, 100);
+      cfg.decay = clamp(num(get(() => decay), 50), 1, 100);
+    }
+    function oncolorChanged() { readProps(); }
+    function onrainbowOnBeatChanged() { readProps(); }
+    function onsensitivityChanged() { readProps(); }
+    function ondecayChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt;
+      const a = getAudio();
+      const gain = 0.3 + cfg.sens / 50 * 1.2;
+      let bass = 0, beat = false;
+      if (a) {
+        bass = clamp(num(a.bass, 0) * gain, 0, 1);
+        const bc = num(a.beatCount, 0);
+        beat = a.beat === true || (lastBeat !== null && bc !== lastBeat);
+        lastBeat = bc;
+      }
+      const signal = !!a && (bass > 0.01 || num(a.level, 0) > 0.003);
+      idleW += ((signal ? 0 : 1) - idleW) * (1 - Math.exp(-dt * 1.5));
+      if (beat) {
+        env = Math.max(env, clamp(0.75 + bass * 0.5, 0, 1));
+        flash = 1;
+        if (cfg.rainbow) hueOff += 0.17;
+      }
+      const rate = 1.5 + cfg.decay * 0.12;
+      env = Math.max(bass * 0.9, env * Math.exp(-dt * rate));
+      flash *= Math.exp(-dt * 9);
+      // smooth but quick glide to the new beat hue
+      hueShown += (hueOff - hueShown) * (1 - Math.exp(-dt * 14));
+      if (!signal && cfg.rainbow) { hueOff += dt * 0.02; }
+    }
+
+    function render() {
+      const base = rgbToHsv(cfg.rgb[0], cfg.rgb[1], cfg.rgb[2]);
+      let c;
+      if (cfg.rainbow) {
+        const h = hsv(base[0] + hueShown, base[1] < 0.2 ? 1 : base[1], base[2] < 0.2 ? 1 : base[2]);
+        c = [h[0] * 255, h[1] * 255, h[2] * 255];
+      } else c = cfg.rgb;
+      const idle = 0.14 + 0.18 * (0.5 - 0.5 * Math.cos(t * 1.3));
+      const lvl = clamp(Math.max(0.03, env) * (1 - idleW) + idle * idleW, 0, 1);
+      const hot = [c[0] + (255 - c[0]) * flash * 0.35, c[1] + (255 - c[1]) * flash * 0.35, c[2] + (255 - c[2]) * flash * 0.35];
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const g = ctx.createRadialGradient(160, 100, 0, 160, 100, 200);
+      g.addColorStop(0, rgb(hot, lvl));
+      g.addColorStop(0.55, rgb(c, lvl * 0.85));
+      g.addColorStop(1, rgb(c, lvl * 0.55));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

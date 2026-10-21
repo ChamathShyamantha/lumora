@@ -1,0 +1,165 @@
+<head>
+  <title>Emergency Lights</title>
+  <meta description="A rooftop light bar in red and blue that double-flashes, wig-wags and spins its rotating beacons." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="police,siren,light bar,red,blue,flash,beacon,alert,emergency,party" />
+  <meta property="pattern" label="Pattern" type="combobox" values="Alternating,Wig-Wag,Sweep,Cycle" default="Alternating" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" tooltip="Flash rate is capped to stay comfortable to look at" />
+  <meta property="colorA" label="Colour A" type="color" default="#ff1020" />
+  <meta property="colorB" label="Colour B" type="color" default="#1036ff" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, SEGS = 8, SW = W / SEGS;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const smooth = (a, b, x) => { const k = clamp((x - a) / (b - a), 0, 1); return k * k * (3 - 2 * k); };
+
+    const cfg = { pattern: 'Alternating', speed: 50, a: [255, 16, 32], b: [16, 54, 255] };
+    function readProps() {
+      cfg.pattern = String(get(() => pattern, 'Alternating'));
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.a = hexRgb(get(() => colorA, '#ff1020'), '#ff1020');
+      cfg.b = hexRgb(get(() => colorB, '#1036ff'), '#1036ff');
+    }
+    function onpatternChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function oncolorAChanged() { readProps(); }
+    function oncolorBChanged() { readProps(); }
+
+    const level = new Float32Array(SEGS);
+    let phase = 0, t = 0;
+
+    // one flash: quick rise, short hold, soft tail (no hard on/off edges)
+    function flash(s) {
+      if (s < 0) return 0;
+      if (s < 0.035) return s / 0.035;
+      if (s < 0.12) return 1;
+      return Math.exp(-(s - 0.12) / 0.07);
+    }
+
+    function compute(mode, P) {
+      const out = new Float32Array(SEGS);
+      const p = phase - Math.floor(phase);
+      if (mode === 'Wig-Wag') {
+        const w = smooth(0.15, 0.85, 0.5 + 0.5 * Math.cos(p * Math.PI * 2));
+        const w2 = smooth(0.15, 0.85, 0.5 + 0.5 * Math.cos(p * Math.PI * 2 - 0.6));
+        for (let j = 0; j < SEGS; j++) {
+          const outer = j === 0 || j === 1 || j === 6 || j === 7;
+          const va = outer ? w : w2;
+          out[j] = j < SEGS / 2 ? va : 1 - va;
+        }
+      } else if (mode === 'Sweep') {
+        // rotating beacons: each half has a two-mirror rotator, mirrored direction
+        const ang = p * Math.PI * 2;
+        for (let j = 0; j < SEGS; j++) {
+          const half = j < SEGS / 2;
+          const local = half ? j : SEGS - 1 - j;
+          const c = Math.abs(Math.cos(ang - local * 0.55 + (half ? 0 : Math.PI / 2)));
+          out[j] = Math.pow(c, 6);
+        }
+      } else {
+        // alternating double-flash: side A twice, then side B twice
+        const halfSec = P / 2;
+        const side = p < 0.5 ? 0 : 1;
+        const s = (p - side * 0.5) * P; // seconds into this side's window
+        const gap = halfSec * 0.48;
+        const v = Math.max(flash(s), flash(s - gap));
+        for (let j = 0; j < SEGS; j++) out[j] = (j < SEGS / 2) === (side === 0) ? v : 0;
+      }
+      return out;
+    }
+
+    function update(dt) {
+      t += dt;
+      const P = 2.2 - cfg.speed / 100 * 1.15; // seconds per full cycle (>= ~1s keeps flashes <= 2.5 Hz per side)
+      phase += dt / P;
+      let mode = cfg.pattern;
+      let blend = 0, mode2 = null;
+      if (mode === 'Cycle') {
+        const list = ['Alternating', 'Wig-Wag', 'Sweep'];
+        const span = 8, k = t / span, i = Math.floor(k) % 3, f = k - Math.floor(k);
+        mode = list[i];
+        if (f > 0.9) { mode2 = list[(i + 1) % 3]; blend = smooth(0.9, 1, f); }
+      }
+      const cur = compute(mode, P);
+      const nxt = mode2 ? compute(mode2, P) : null;
+      for (let j = 0; j < SEGS; j++) {
+        const target = nxt ? cur[j] * (1 - blend) + nxt[j] * blend : cur[j];
+        // light-bulb style response, slightly softer on the way down
+        const r = target > level[j] ? 40 : 18;
+        level[j] += (target - level[j]) * (1 - Math.exp(-dt * r));
+      }
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      // dim resting glow so the bar never goes fully dead
+      let sa = 0, sb = 0;
+      for (let j = 0; j < SEGS; j++) { if (j < SEGS / 2) sa += level[j]; else sb += level[j]; }
+      const lg = ctx.createLinearGradient(0, 0, W, 0);
+      lg.addColorStop(0, rgba(cfg.a, 0.1 + sa * 0.04));
+      lg.addColorStop(0.5, 'rgba(0,0,0,0)');
+      lg.addColorStop(1, rgba(cfg.b, 0.1 + sb * 0.04));
+      ctx.fillStyle = lg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let j = 0; j < SEGS; j++) {
+        const e = level[j];
+        if (e < 0.01) continue;
+        const c = j < SEGS / 2 ? cfg.a : cfg.b;
+        const cx = j * SW + SW / 2;
+        // wide halo spilling into the room
+        const hr = 95;
+        const hg = ctx.createRadialGradient(cx, H / 2, 0, cx, H / 2, hr);
+        hg.addColorStop(0, rgba(c, e * 0.55));
+        hg.addColorStop(1, rgba(c, 0));
+        ctx.fillStyle = hg;
+        ctx.fillRect(cx - hr, H / 2 - hr, hr * 2, hr * 2);
+        // the lamp lens itself
+        const g = ctx.createLinearGradient(j * SW, 0, j * SW + SW, 0);
+        g.addColorStop(0, rgba(c, e * 0.5));
+        g.addColorStop(0.5, rgba(c, e));
+        g.addColorStop(1, rgba(c, e * 0.5));
+        ctx.fillStyle = g;
+        ctx.fillRect(j * SW + 2, 8, SW - 4, H - 16);
+        // white-hot core at peak brightness
+        const w = e * e;
+        if (w > 0.05) {
+          const cg = ctx.createRadialGradient(cx, H / 2, 0, cx, H / 2, 46);
+          cg.addColorStop(0, rgba([255, 255, 255], w * 0.55));
+          cg.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = cg;
+          ctx.fillRect(cx - 46, H / 2 - 46, 92, 92);
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

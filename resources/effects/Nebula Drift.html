@@ -1,0 +1,173 @@
+<head>
+  <title>Nebula Drift</title>
+  <meta description="Luminous clouds of interstellar gas fold slowly into one another while a few bright stars shine through the haze." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="calm" />
+  <meta palette="neon" />
+  <meta tags="space,nebula,clouds,gas,cosmic,ambient,stars,dreamy" />
+  <meta property="scheme" label="Colour Scheme" type="combobox" values="Violet Storm,Emerald Veil,Crimson Rift,Ion Blue,Spectrum" default="Violet Storm" tooltip="Colours of the gas clouds" />
+  <meta property="drift" label="Drift Speed" type="number" min="1" max="100" default="30" tooltip="How fast the clouds fold and flow" />
+  <meta property="starDensity" label="Star Density" type="number" min="0" max="100" default="35" tooltip="How many bright stars shine through" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, LW = 80, LH = 50;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const sstep = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+
+    // ---- seeded value noise -------------------------------------------------
+    let seed = 90217;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const PERM = new Uint16Array(512), VAL = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { PERM[i] = i; VAL[i] = rand(); }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const s = PERM[i]; PERM[i] = PERM[j]; PERM[j] = s; }
+    for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let fx = x - xi, fy = y - yi;
+      const X = xi & 255, Y = yi & 255;
+      const a = VAL[PERM[PERM[X] + Y]], b = VAL[PERM[PERM[X + 1] + Y]];
+      const c = VAL[PERM[PERM[X] + Y + 1]], d = VAL[PERM[PERM[X + 1] + Y + 1]];
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+    function fbm(x, y) {
+      let s = 0, amp = 0.5;
+      for (let o = 0; o < 4; o++) {
+        s += amp * noise(x, y);
+        const nx = 1.62 * x + 1.18 * y, ny = -1.18 * x + 1.62 * y;
+        x = nx + 3.1; y = ny + 7.7; amp *= 0.5;
+      }
+      return s / 0.9375;
+    }
+
+    // ---- colour schemes: deep, body, accent, highlight ---------------------
+    const SCHEMES = {
+      'Violet Storm': [[30, 6, 62], [128, 24, 220], [255, 36, 168], [70, 225, 255]],
+      'Emerald Veil': [[2, 26, 34], [0, 150, 140], [50, 255, 130], [230, 255, 120]],
+      'Crimson Rift': [[34, 2, 22], [210, 10, 70], [255, 120, 20], [255, 90, 220]],
+      'Ion Blue': [[2, 10, 44], [20, 80, 255], [0, 225, 255], [200, 110, 255]]
+    };
+    function hueRgb(h) {
+      h = (h - Math.floor(h)) * 6;
+      const r = clamp01(Math.abs(h - 3) - 1), g = clamp01(2 - Math.abs(h - 2)), b = clamp01(2 - Math.abs(h - 4));
+      return [r * 255, g * 255, b * 255];
+    }
+
+    const cfg = { scheme: 'Violet Storm', drift: 30, density: 35 };
+    function readProps() {
+      const s = String(read(() => scheme, 'Violet Storm'));
+      cfg.scheme = SCHEMES[s] || s === 'Spectrum' ? s : 'Violet Storm';
+      cfg.drift = numIn(read(() => drift, 30), 30, 0, 100);
+      cfg.density = numIn(read(() => starDensity, 35), 35, 0, 100);
+    }
+    function onschemeChanged() { readProps(); }
+    function ondriftChanged() { readProps(); }
+    function onstarDensityChanged() { readProps(); }
+
+    const buf = document.createElement('canvas');
+    buf.width = LW; buf.height = LH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(LW, LH);
+    const px = img.data;
+
+    let t = 0, clock = 0;
+    const stars = [];
+    function spawnStar(s, initial) {
+      s.x = Math.random() * W; s.y = Math.random() * H;
+      s.life = initial ? Math.random() : 0;
+      s.dur = 7 + Math.random() * 9;
+      s.size = 10 + Math.random() * 14;
+      s.tw = Math.random() * 6.28;
+      return s;
+    }
+
+    function palette() {
+      if (cfg.scheme !== 'Spectrum') return SCHEMES[cfg.scheme];
+      const h = clock * 0.012;
+      const a = hueRgb(h), b = hueRgb(h + 0.18), c = hueRgb(h + 0.42);
+      return [[a[0] * 0.1 + 4, a[1] * 0.1 + 4, a[2] * 0.1 + 12], a, b, c];
+    }
+
+    function renderGas() {
+      const P = palette();
+      const c0 = P[0], c1 = P[1], c2 = P[2], c3 = P[3];
+      const ta = t * 0.31, tb = t * 0.23, tc = t * 0.17;
+      let o = 0;
+      for (let j = 0; j < LH; j++) {
+        const y = j / LH * 1.6;
+        for (let i = 0; i < LW; i++) {
+          const x = i / LW * 2.55;
+          // two levels of domain warping give the slow folding, smoke-like motion
+          const qx = fbm(x + ta, y - tb * 0.5);
+          const qy = fbm(x + 5.2 - tb, y + 1.3 + ta * 0.4);
+          const rx = fbm(x + 2.6 * qx + 1.7 + tc, y + 2.6 * qy + 9.2);
+          const ry = fbm(x + 2.6 * qx + 8.3, y + 2.6 * qy + 2.8 - tc);
+          const f = fbm(x + 2.2 * rx, y + 2.2 * ry);
+          const k = sstep(0.28, 0.78, f);
+          const m2 = sstep(0.42, 0.78, Math.abs(qx - qy) * 1.6 + rx * 0.5) * 0.85;
+          const m3 = sstep(0.55, 0.8, ry) * k * 0.75;
+          let r = c0[0] + (c1[0] - c0[0]) * k, g = c0[1] + (c1[1] - c0[1]) * k, b = c0[2] + (c1[2] - c0[2]) * k;
+          r += (c2[0] - r) * m2; g += (c2[1] - g) * m2; b += (c2[2] - b) * m2;
+          r += (c3[0] - r) * m3; g += (c3[1] - g) * m3; b += (c3[2] - b) * m3;
+          const lum = 0.5 + 0.9 * k * k + 0.25 * m3;
+          px[o] = r * lum; px[o + 1] = g * lum; px[o + 2] = b * lum; px[o + 3] = 255;
+          o += 4;
+        }
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+    }
+
+    function renderStars(dt) {
+      const want = Math.round(cfg.density * 0.22);
+      while (stars.length < want) stars.push(spawnStar({}, true));
+      if (stars.length > want) stars.length = want;
+      ctx.globalCompositeOperation = 'lighter';
+      const sp = 1 + cfg.drift * 0.05;
+      for (const s of stars) {
+        s.life += dt / s.dur;
+        s.x -= dt * sp * (s.size * 0.12);
+        if (s.life >= 1 || s.x < -30) spawnStar(s, false);
+        const env = Math.sin(Math.PI * s.life);
+        const a = env * (0.75 + 0.25 * Math.sin(clock * 2.3 + s.tw));
+        if (a < 0.02) continue;
+        const r = s.size;
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, r);
+        g.addColorStop(0, 'rgba(255,255,255,' + a.toFixed(3) + ')');
+        g.addColorStop(0.18, 'rgba(225,235,255,' + (a * 0.7).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(160,190,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(s.x - r, s.y - r, r * 2, r * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      clock += dt;
+      t += dt * (0.015 + cfg.drift * 0.0045);
+      renderGas();
+      renderStars(dt);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

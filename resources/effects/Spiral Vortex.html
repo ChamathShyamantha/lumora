@@ -1,0 +1,124 @@
+<head>
+  <title>Spiral Vortex</title>
+  <meta description="A hypnotic multi-armed spiral spinning around the center of your setup." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="intense" />
+  <meta palette="rainbow" />
+  <meta tags="psychedelic,motion,colorful" />
+  <meta property="arms" label="Arms" type="number" min="1" max="8" step="1" default="3" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="40" />
+  <meta property="twist" label="Twist" type="number" min="0" max="100" default="50" />
+  <meta property="rainbow" label="Rainbow" type="boolean" default="1" />
+  <meta property="color1" label="Color 1" type="color" default="#ff0066" />
+  <meta property="color2" label="Color 2" type="color" default="#00ccff" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const bool = (v, d) => (v === undefined || v === null ? d : v === true || v === 1 || v === '1' || v === 'true');
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function hsvTo(h, s, v, d, o) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      let r, g, b;
+      switch (i) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        default: r = v; g = p; b = q;
+      }
+      d[o] = r * 255; d[o + 1] = g * 255; d[o + 2] = b * 255; d[o + 3] = 255;
+    }
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const B = buffer(80, 50);
+    // Polar coordinates never change, so cache them once.
+    const ANG = new Float32Array(B.w * B.h), RAD = new Float32Array(B.w * B.h);
+    for (let j = 0, n = 0; j < B.h; j++) {
+      for (let i = 0; i < B.w; i++, n++) {
+        const dx = (i + 0.5) * (W / B.w) - 160, dy = (j + 0.5) * (H / B.h) - 100;
+        ANG[n] = Math.atan2(dy, dx);
+        RAD[n] = Math.sqrt(dx * dx + dy * dy) / 190;
+      }
+    }
+    const cfg = { arms: 3, speed: 40, twist: 50, rainbow: true, c1: [255, 0, 102], c2: [0, 204, 255] };
+    let t = 0;
+
+    function readProps() {
+      cfg.arms = Math.round(clamp(num(get(() => arms), 3), 1, 8));
+      cfg.speed = clamp(num(get(() => speed), 40), 0, 100);
+      cfg.twist = clamp(num(get(() => twist), 50), 0, 100);
+      cfg.rainbow = bool(get(() => rainbow), true);
+      cfg.c1 = hexRgb(get(() => color1, '#ff0066'), '#ff0066');
+      cfg.c2 = hexRgb(get(() => color2, '#00ccff'), '#00ccff');
+    }
+    function onarmsChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function ontwistChanged() { readProps(); }
+    function onrainbowChanged() { readProps(); }
+    function oncolor1Changed() { readProps(); }
+    function oncolor2Changed() { readProps(); }
+
+    function update(dt) {
+      t += dt * (0.2 + cfg.speed * 0.06);
+      if (t > 1e5) t -= 1e5 - (1e5 % (Math.PI * 2));
+    }
+
+    function render() {
+      const arms = cfg.arms, tw = cfg.twist / 100 * 14, rb = cfg.rainbow;
+      const c1 = cfg.c1, c2 = cfg.c2, d = B.d, n = B.w * B.h;
+      const hueShift = -t * 0.025;
+      for (let k = 0, o = 0; k < n; k++, o += 4) {
+        const a = ANG[k], r = RAD[k];
+        const v = a * arms + r * tw - t;
+        const s = 0.5 + 0.5 * Math.cos(v);
+        const core = Math.min(1, 0.35 + r * 3); // soft dark eye in the middle
+        if (rb) {
+          hsvTo(a / (Math.PI * 2) + r * 0.35 + hueShift, 1, (0.12 + 0.88 * s * s) * core, d, o);
+        } else {
+          const m = s * s * (3 - 2 * s);
+          d[o] = (c2[0] + (c1[0] - c2[0]) * m) * core;
+          d[o + 1] = (c2[1] + (c1[1] - c2[1]) * m) * core;
+          d[o + 2] = (c2[2] + (c1[2] - c2[2]) * m) * core;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

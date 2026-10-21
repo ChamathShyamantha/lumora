@@ -1,0 +1,122 @@
+<head>
+  <title>Liquid Chrome</title>
+  <meta description="A slow, mirror-bright pool of liquid metal rolls and ripples, catching studio light on every swell." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="mono" />
+  <meta tags="chrome,liquid metal,mercury,silver,reflection,metallic,smooth,flow,elegant" />
+  <meta property="tintColor" label="Tint" type="color" default="#9cc4ff" />
+  <meta property="flowSpeed" label="Flow Speed" type="number" min="1" max="100" default="30" />
+  <meta property="shininess" label="Shininess" type="number" min="0" max="100" default="65" tooltip="Sharper, brighter reflections as it rises" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const B = buffer(112, 70);
+    const HW = B.w + 2, HH = B.h + 2;
+    const HF = new Float32Array(HW * HH);
+    const cfg = { tint: [156, 196, 255], speed: 30, shine: 65 };
+    let t = 0;
+
+    function readProps() {
+      const c = hexRgb(get(() => tintColor, '#9cc4ff'), '#9cc4ff');
+      // Chrome must stay bright: lift very dark tints while keeping their hue.
+      const m = Math.max(c[0], c[1], c[2]);
+      cfg.tint = m < 1 ? [160, 160, 160] : m < 160 ? c.map((v) => (v * 160) / m) : c;
+      cfg.speed = clamp(num(get(() => flowSpeed), 30), 0, 100);
+      cfg.shine = clamp(num(get(() => shininess), 65), 0, 100);
+    }
+    function ontintColorChanged() { readProps(); }
+    function onflowSpeedChanged() { readProps(); }
+    function onshininessChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt * (0.05 + cfg.speed * 0.012);
+      if (t > 1e5) t = 0;
+    }
+
+    // Smooth, domain-warped wave field: broad swells folded by slower currents.
+    function height(x, y) {
+      const wx = x + 0.9 * Math.sin(y * 0.8 + t * 0.7) + 0.5 * Math.sin(y * 1.7 - t * 0.4);
+      const wy = y + 0.9 * Math.sin(x * 0.7 - t * 0.6) + 0.5 * Math.sin(x * 1.5 + t * 0.5);
+      return Math.sin(wx * 1.1 + t * 0.5) + Math.sin(wy * 1.3 - t * 0.3) + 0.55 * Math.sin((wx + wy) * 1.7 + t * 0.9) + 0.3 * Math.sin((wx - wy) * 2.6 - t * 1.1);
+    }
+
+    function render() {
+      const sc = 6.2 / B.w;
+      for (let j = 0; j < HH; j++) for (let i = 0; i < HW; i++) HF[j * HW + i] = height((i - 1) * sc, (j - 1) * sc * 1);
+      const shine = cfg.shine / 100;
+      const bump = 2.2;
+      const stripes = 1.5 + shine * 4; // sharpness of the reflected light panels
+      const specPow = 6 + shine * 50;
+      const tr = cfg.tint[0] / 255, tg = cfg.tint[1] / 255, tb = cfg.tint[2] / 255;
+      const Lx = 0.45 * Math.cos(t * 0.13), Ly = -0.55, Lz = 0.7;
+      const ll = 1 / Math.sqrt(Lx * Lx + Ly * Ly + Lz * Lz);
+      const d = B.d;
+      let o = 0;
+      for (let j = 0; j < B.h; j++) {
+        for (let i = 0; i < B.w; i++, o += 4) {
+          const c = (j + 1) * HW + i + 1;
+          const hx = (HF[c + 1] - HF[c - 1]) * bump, hy = (HF[c + HW] - HF[c - HW]) * bump;
+          const inv = 1 / Math.sqrt(hx * hx + hy * hy + 1);
+          const nx = -hx * inv, ny = -hy * inv, nz = inv;
+          // Reflect the viewing ray (straight into the screen) about the surface normal.
+          const rx = 2 * nz * nx, ry = 2 * nz * ny, rz = 2 * nz * nz - 1;
+          // Studio environment: bright sky above a dark floor, with soft light panels.
+          let hz = (-ry + 0.08) * (3 + shine * 9);
+          hz = hz < 0 ? 0 : hz > 1 ? 1 : hz;
+          hz = hz * hz * (3 - 2 * hz);
+          const sky = 0.55 + 0.45 * (-ry < 0 ? 0 : -ry);
+          const floor = 0.09 + 0.14 * (ry > 0.5 ? 0 : 1 - ry * 2);
+          let env = floor + (sky - floor) * hz;
+          let panel = 0.5 + 0.5 * Math.cos(rx * 5.5 + t * 0.25);
+          panel = Math.pow(panel, stripes);
+          env = env * (0.55 + 0.45 * panel) + 0.08 * (1 - hz) * panel;
+          let sp = (rx * Lx + ry * Ly + rz * Lz) * ll;
+          sp = sp > 0 ? Math.pow(sp, specPow) * (0.6 + shine * 0.8) : 0;
+          d[o] = (tr * env + sp) * 255;
+          d[o + 1] = (tg * env + sp) * 255;
+          d[o + 2] = (tb * env + sp) * 255;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

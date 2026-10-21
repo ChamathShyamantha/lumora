@@ -1,0 +1,159 @@
+<head>
+  <title>Disco Floor</title>
+  <meta description="A glowing seventies dance floor whose tiles flip colour in checkers, waves and scatters to the beat." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="lively" />
+  <meta palette="rainbow" />
+  <meta tags="audio,music,disco,dance floor,tiles,70s,retro,party,beat,checker" />
+  <meta property="tileSize" label="Tile Size" type="number" min="20" max="80" default="40" />
+  <meta property="pattern" label="Pattern" type="combobox" values="Mix,Checker,Waves,Random" default="Mix" />
+  <meta property="sensitivity" label="Sensitivity" type="number" min="1" max="100" default="60" tooltip="Higher flips the floor on more beats and pumps harder with the bass" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+    // classic backlit-glass floor colours
+    const PAL = [[255, 20, 60], [255, 120, 0], [255, 220, 0], [40, 230, 60], [0, 210, 255], [30, 70, 255], [160, 40, 255], [255, 40, 200]];
+    const pick = (not) => { let i; do { i = (Math.random() * PAL.length) | 0; } while (i === not && PAL.length > 1); return i; };
+
+    const cfg = { size: 40, pattern: 'Mix', sens: 60 };
+    let cols = 0, rows = 0, tiles = [];
+    let triggers = 0, beatTally = 0, timer = 0, pump = 0, lastBeatCount = null, sinceBeat = 99;
+    let pairA = 0, pairB = 4, t = 0;
+
+    function layout() {
+      const s = clamp(Math.round(cfg.size), 10, 120);
+      const nc = Math.ceil(W / s), nr = Math.ceil(H / s);
+      if (nc === cols && nr === rows && tiles.length) return;
+      cols = nc; rows = nr; tiles = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const ci = (c + r) % 2 ? pairA : pairB;
+        tiles.push({ c, r, from: ci, to: ci, age: 9, flash: 0, wait: -1, next: ci });
+      }
+    }
+    function readProps() {
+      cfg.size = clamp(num(get(() => tileSize), 40), 10, 120);
+      cfg.pattern = String(get(() => pattern, 'Mix'));
+      cfg.sens = clamp(num(get(() => sensitivity), 60), 1, 100);
+      layout();
+    }
+    function ontileSizeChanged() { readProps(); }
+    function onpatternChanged() { readProps(); }
+    function onsensitivityChanged() { readProps(); }
+
+    function schedule(tile, colorIdx, delay) { tile.next = colorIdx; tile.wait = delay; }
+
+    function trigger(strength) {
+      triggers++;
+      let mode = cfg.pattern;
+      if (mode === 'Mix') mode = ['Checker', 'Waves', 'Random'][Math.floor(triggers / 8) % 3];
+      if (mode === 'Checker') {
+        if (triggers % 4 === 0) { pairA = pick(pairA); pairB = (pairA + 3 + ((Math.random() * 3) | 0)) % PAL.length; }
+        const flip = triggers % 2;
+        for (const tl of tiles) schedule(tl, ((tl.c + tl.r + flip) % 2) ? pairA : pairB, 0);
+      } else if (mode === 'Waves') {
+        const ci = pick(tiles.length ? tiles[0].to : -1);
+        const cj = (ci + 3 + ((Math.random() * 3) | 0)) % PAL.length;
+        const k = triggers % 4;
+        const ox = k === 0 ? -1 : k === 1 ? cols : k === 2 ? (cols - 1) / 2 : -1;
+        const oy = k === 2 ? (rows - 1) / 2 : k === 3 ? rows : -1;
+        for (const tl of tiles) {
+          const d = Math.hypot(tl.c - ox, tl.r - oy);
+          schedule(tl, Math.floor(d / 1.5) % 2 ? cj : ci, d * 0.055);
+        }
+      } else {
+        for (const tl of tiles) if (Math.random() < 0.45) schedule(tl, pick(tl.to), Math.random() * 0.08);
+      }
+      pump = Math.max(pump, strength);
+    }
+
+    function update(dt) {
+      t += dt;
+      const a = getAudio();
+      let beat = false, bass = 0;
+      if (a) {
+        bass = clamp(num(a.bass, 0), 0, 1);
+        const bc = num(a.beatCount, 0);
+        beat = a.beat === true || (lastBeatCount !== null && bc !== lastBeatCount);
+        lastBeatCount = bc;
+      } else lastBeatCount = null;
+      sinceBeat = beat ? 0 : sinceBeat + dt;
+      const gain = cfg.sens / 60;
+      if (beat) {
+        beatTally++;
+        const every = cfg.sens > 66 ? 1 : cfg.sens > 30 ? 2 : 4;
+        if (beatTally % every === 0) trigger(clamp(0.35 + bass * 0.5 * gain, 0, 1));
+        else pump = Math.max(pump, clamp(bass * 0.35 * gain, 0, 0.5));
+        timer = 0;
+      } else if (sinceBeat > 2.5) {
+        timer += dt;
+        if (timer >= 0.85) { timer = 0; trigger(0.3); }
+      }
+      pump *= Math.exp(-dt / 0.22);
+      for (const tl of tiles) {
+        if (tl.wait >= 0) {
+          tl.wait -= dt;
+          if (tl.wait < 0) {
+            if (tl.next !== tl.to) { tl.from = tl.to; tl.to = tl.next; tl.age = 0; tl.flash = 1; }
+            else tl.flash = Math.max(tl.flash, 0.5);
+          }
+        }
+        tl.age += dt;
+        tl.flash *= Math.exp(-dt / 0.2);
+      }
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      const s = W / cols, sy = H / rows;
+      const gap = Math.max(1.5, s * 0.06);
+      for (const tl of tiles) {
+        const k = clamp(tl.age / 0.12, 0, 1), e = k * k * (3 - 2 * k);
+        const A = PAL[tl.from], B = PAL[tl.to];
+        const col = [A[0] + (B[0] - A[0]) * e, A[1] + (B[1] - A[1]) * e, A[2] + (B[2] - A[2]) * e];
+        // slow shimmer so a still floor never looks frozen
+        const sh = 0.06 * Math.sin(t * 1.7 + tl.c * 1.3 + tl.r * 2.1);
+        const br = clamp(0.74 + sh + pump * 0.32 + tl.flash * 0.25, 0, 1.4);
+        const x = tl.c * s, y = tl.r * sy, cx = x + s / 2, cy = y + sy / 2;
+        const lit = [col[0] * br, col[1] * br, col[2] * br];
+        const wh = 40 + 255 * tl.flash * 0.45;
+        const hot = [lit[0] * 1.15 + wh, lit[1] * 1.15 + wh, lit[2] * 1.15 + wh];
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(s, sy) * 0.72);
+        g.addColorStop(0, rgba(hot, 1));
+        g.addColorStop(0.55, rgba(lit, 1));
+        g.addColorStop(1, rgba([lit[0] * 0.6, lit[1] * 0.6, lit[2] * 0.6], 1));
+        ctx.fillStyle = g;
+        ctx.fillRect(x + gap / 2, y + gap / 2, s - gap, sy - gap);
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

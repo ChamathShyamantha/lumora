@@ -1,0 +1,175 @@
+<head>
+  <title>Spectrum Tunnel</title>
+  <meta description="Fly down a winding tunnel built from rings of sound, each one stamped with the music at the moment it was born." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="rainbow" />
+  <meta tags="audio,music,tunnel,rings,spectrum,warp,visualizer,psychedelic,party,3d" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="45" />
+  <meta property="sensitivity" label="Sensitivity" type="number" min="1" max="100" default="55" />
+  <meta property="colorMode" label="Colour Mode" type="combobox" values="Rainbow,Spectrum,Neon,Fire" default="Rainbow" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, SEG = 28;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      const o = i === 0 ? [v, t, p] : i === 1 ? [q, v, p] : i === 2 ? [p, v, t] : i === 3 ? [p, q, v] : i === 4 ? [t, p, v] : [v, p, q];
+      return [o[0] * 255, o[1] * 255, o[2] * 255];
+    }
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+
+    const cfg = { speed: 45, sens: 55, mode: 'Rainbow' };
+    function readProps() {
+      cfg.speed = clamp(num(get(() => speed), 45), 0, 100);
+      cfg.sens = clamp(num(get(() => sensitivity), 55), 1, 100);
+      cfg.mode = String(get(() => colorMode, 'Rainbow'));
+    }
+    function onspeedChanged() { readProps(); }
+    function onsensitivityChanged() { readProps(); }
+    function oncolorModeChanged() { readProps(); }
+
+    const rings = [];
+    let t = 0, born = 0, quiet = 99, kick = 0, lastBeatCount = null;
+    let vx = 160, vy = 100;
+
+    function ringColor(n, centroid, level, bass) {
+      switch (cfg.mode) {
+        case 'Spectrum': return hsv(0.98 - centroid * 0.75, 1, 1);
+        case 'Neon': return n % 2 ? [255, 0, 190] : [0, 220, 255];
+        case 'Fire': return hsv(0.0 + level * 0.12 + (n % 3) * 0.015, 1 - level * 0.25, 1);
+        default: return hsv(n * 0.022 + centroid * 0.25, 1, 1);
+      }
+    }
+
+    function spawn(a) {
+      const shape = new Float32Array(SEG);
+      const gain = 0.4 + cfg.sens / 55;
+      let bright, centroid = 0.4, level = 0.5, bass = 0;
+      if (a && a.freq && a.freq.length) {
+        const f = a.freq, n = f.length;
+        let sw = 0, s = 0;
+        for (let i = 0; i < n; i++) { const v = clamp(num(f[i], 0), 0, 1); sw += v * i; s += v; }
+        centroid = s > 0.001 ? sw / s / (n - 1) : 0.4;
+        level = clamp(num(a.level, 0) * gain, 0, 1);
+        bass = clamp(num(a.bass, 0) * gain, 0, 1);
+        // spectrum wrapped around the ring, mirrored so it stays symmetrical
+        const half = SEG / 2;
+        for (let j = 0; j < SEG; j++) {
+          const m = j < half ? j : SEG - 1 - j;
+          const idx = Math.min(n - 1, Math.floor(Math.pow(m / half, 1.4) * n * 0.85));
+          shape[j] = clamp(num(f[idx], 0) * gain, 0, 1.3) * 0.32;
+        }
+        bright = 0.35 + level * 0.65 + kick * 0.2;
+      } else {
+        const p = t * 0.7;
+        for (let j = 0; j < SEG; j++) shape[j] = 0.07 * (1 + Math.sin(j / SEG * Math.PI * 2 * 3 + p));
+        bright = 0.55 + 0.15 * Math.sin(born * 0.6);
+        level = 0.4;
+      }
+      const c = ringColor(born, centroid, level, bass);
+      rings.push({ z: 1, shape, c, b: clamp(bright, 0.2, 1), w: 1 + bass * 0.8 });
+      born++;
+      if (rings.length > 60) rings.shift();
+    }
+
+    function update(dt) {
+      t += dt;
+      const a = getAudio();
+      let beat = false;
+      if (a) {
+        const bc = num(a.beatCount, 0);
+        beat = a.beat === true || (lastBeatCount !== null && bc !== lastBeatCount);
+        lastBeatCount = bc;
+      } else lastBeatCount = null;
+      quiet = a && num(a.level, 0) > 0.01 ? 0 : quiet + dt;
+      if (beat) kick = 1;
+      kick *= Math.exp(-dt / 0.2);
+      const live = quiet < 1.5 ? a : null;
+      const v = (0.22 + cfg.speed / 100 * 0.85) * (1 + kick * 0.5);
+      for (const r of rings) r.z -= v * dt * r.z * 1.6;
+      while (rings.length && rings[0].z < 0.06) rings.shift();
+      const newest = rings.length ? rings[rings.length - 1].z : 0;
+      if (!rings.length || newest < 0.8) spawn(live);
+      // the vanishing point wanders so the tunnel winds
+      vx = 160 + Math.sin(t * 0.31) * 46 + Math.sin(t * 0.17) * 16;
+      vy = 100 + Math.sin(t * 0.23 + 1) * 26;
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      for (const r of rings) {
+        const R = 16 / r.z;
+        const near = 1 - r.z;
+        const cx = 160 + (vx - 160) * r.z * 1.15, cy = 100 + (vy - 100) * r.z * 1.15;
+        const fadeIn = clamp((1 - r.z) / 0.25, 0, 1);
+        const fadeOut = clamp(1 - (R - 190) / 110, 0, 1);
+        const alpha = r.b * fadeIn * fadeOut;
+        if (alpha < 0.01) continue;
+        const lw = (1.6 + R * 0.055) * r.w;
+        const rot = t * 0.15;
+        ctx.beginPath();
+        const STEPS = SEG * 3;
+        for (let j = 0; j <= STEPS; j++) {
+          const u = (j % STEPS) / 3, k0 = Math.floor(u), f = u - k0, sm = f * f * (3 - 2 * f);
+          const sh = r.shape[k0 % SEG] * (1 - sm) + r.shape[(k0 + 1) % SEG] * sm;
+          const ang = u / SEG * Math.PI * 2 + rot;
+          const rr = R * (1 + sh);
+          const x = cx + Math.cos(ang) * rr * 1.25, y = cy + Math.sin(ang) * rr;
+          if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = rgba(r.c, alpha * 0.12);
+        ctx.lineWidth = lw * 5.5;
+        ctx.stroke();
+        ctx.strokeStyle = rgba(r.c, alpha * 0.85);
+        ctx.lineWidth = lw;
+        ctx.stroke();
+        if (near > 0.3) {
+          ctx.strokeStyle = rgba([255, 255, 255], alpha * 0.25 * near);
+          ctx.lineWidth = lw * 0.35;
+          ctx.stroke();
+        }
+      }
+      // faint glow down at the end of the tunnel
+      const nc = rings.length ? rings[rings.length - 1].c : [120, 120, 255];
+      const g = ctx.createRadialGradient(vx, vy, 0, vx, vy, 40);
+      g.addColorStop(0, rgba(nc, 0.35 + kick * 0.2));
+      g.addColorStop(1, rgba(nc, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(vx - 40, vy - 40, 80, 80);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

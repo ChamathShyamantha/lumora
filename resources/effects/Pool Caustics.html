@@ -1,0 +1,157 @@
+<head>
+  <title>Pool Caustics</title>
+  <meta description="A living net of sunlight dances across the floor of a clear swimming pool as ripples bend the light." />
+  <meta publisher="Lumora" />
+  <meta category="Nature" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="nature,water,pool,caustics,ripples,summer,shimmer,aqua,turquoise,calm,relax" />
+  <meta property="waterColor" label="Water Color" type="color" default="#12b4e0" />
+  <meta property="rippleSpeed" label="Ripple Speed" type="number" min="1" max="100" default="40" />
+  <meta property="scale" label="Scale" tooltip="Size of the light cells" type="number" min="1" max="100" default="50" />
+  <meta property="brightness" label="Brightness" type="number" min="1" max="100" default="70" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, TAU = Math.PI * 2;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    // The floor is lit by "photons" that pass through the rippled surface.
+    // Each one is bent by the surface slope; where many converge, bright caustic lines form.
+    const FW = 96, FH = 60;                 // floor light buffer
+    const MARGIN = 46;                      // photons start beyond the edges so none are missing at the borders
+    const PSP = 2;                          // photon spacing in px
+    const PW = Math.ceil((W + MARGIN * 2) / PSP), PH = Math.ceil((H + MARGIN * 2) / PSP);
+    const B = buffer(FW, FH);
+    const floorA = new Float32Array(FW * FH);
+    const floorB = new Float32Array(FW * FH);
+    // surface waves: direction, relative wavelength, focus strength
+    const WAVES = [
+      [0.35, 1.0, 0.42], [1.62, 0.8, 0.38], [2.71, 0.62, 0.3], [4.05, 1.25, 0.34], [5.2, 0.5, 0.22], [0.95, 0.42, 0.16]
+    ];
+    const cfg = { water: [18, 180, 224], speed: 40, scale: 50, bright: 70 };
+    let t = 0;
+
+    function readProps() {
+      cfg.water = hexRgb(get(() => waterColor, '#12b4e0'), '#12b4e0');
+      cfg.speed = clamp(num(get(() => rippleSpeed), 40), 0, 100);
+      cfg.scale = clamp(num(get(() => scale), 50), 1, 100);
+      cfg.bright = clamp(num(get(() => brightness), 70), 1, 100);
+    }
+    function onwaterColorChanged() { readProps(); }
+    function onrippleSpeedChanged() { readProps(); }
+    function onscaleChanged() { readProps(); }
+    function onbrightnessChanged() { readProps(); }
+
+    const wk = new Float32Array(WAVES.length * 6);
+    function update(dt) {
+      t += dt * (0.15 + cfg.speed * 0.022);
+      if (t > 1e5) t = 0;
+    }
+
+    function simulate() {
+      const base = 50 + cfg.scale * 1.3;    // px wavelength of the main wave
+      const n = WAVES.length;
+      for (let k = 0; k < n; k++) {
+        const w = WAVES[k];
+        const lam = base * w[1];
+        const q = TAU / lam;
+        // slowly turning wave directions keep the pattern from ever repeating
+        const ang = w[0] + 0.25 * Math.sin(t * 0.05 + k * 1.7);
+        const dx = Math.cos(ang), dy = Math.sin(ang);
+        const om = Math.sqrt(q) * 2.2;                  // deep-water style dispersion
+        const disp = w[2] / q;                          // focus strength / wavenumber
+        wk[k * 6] = dx * q; wk[k * 6 + 1] = dy * q; wk[k * 6 + 2] = om; wk[k * 6 + 3] = disp * dx; wk[k * 6 + 4] = disp * dy; wk[k * 6 + 5] = k * 2.3;
+      }
+      floorA.fill(0);
+      const fx = FW / W, fy = FH / H;
+      for (let j = 0; j < PH; j++) {
+        const y0 = (j + 0.5) * PSP - MARGIN;
+        for (let i = 0; i < PW; i++) {
+          const x0 = (i + 0.5) * PSP - MARGIN;
+          let ox = 0, oy = 0;
+          for (let k = 0; k < n; k++) {
+            const b = k * 6;
+            const c = Math.cos(wk[b] * x0 + wk[b + 1] * y0 - wk[b + 2] * t + wk[b + 5]);
+            ox += wk[b + 3] * c; oy += wk[b + 4] * c;
+          }
+          // landing spot on the floor (photons that miss the visible floor are dropped)
+          const px = (x0 + ox) * fx - 0.5, py = (y0 + oy) * fy - 0.5;
+          if (px < -1 || py < -1 || px >= FW || py >= FH) continue;
+          const ix = Math.floor(px), iy = Math.floor(py), ax = px - ix, ay = py - iy;
+          const okx0 = ix >= 0, okx1 = ix + 1 < FW, oky0 = iy >= 0, oky1 = iy + 1 < FH;
+          if (oky0 && okx0) floorA[iy * FW + ix] += (1 - ax) * (1 - ay);
+          if (oky0 && okx1) floorA[iy * FW + ix + 1] += ax * (1 - ay);
+          if (oky1 && okx0) floorA[(iy + 1) * FW + ix] += (1 - ax) * ay;
+          if (oky1 && okx1) floorA[(iy + 1) * FW + ix + 1] += ax * ay;
+        }
+      }
+      // light blur to melt photon grain into smooth lines
+      for (let j = 0; j < FH; j++) {
+        const jm = j > 0 ? j - 1 : 0, jp = j < FH - 1 ? j + 1 : FH - 1;
+        for (let i = 0; i < FW; i++) {
+          const im = i > 0 ? i - 1 : 0, ip = i < FW - 1 ? i + 1 : FW - 1;
+          floorB[j * FW + i] = floorA[j * FW + i] * 0.36 +
+            (floorA[j * FW + im] + floorA[j * FW + ip] + floorA[jm * FW + i] + floorA[jp * FW + i]) * 0.12 +
+            (floorA[jm * FW + im] + floorA[jm * FW + ip] + floorA[jp * FW + im] + floorA[jp * FW + ip]) * 0.04;
+        }
+      }
+    }
+
+    function render() {
+      simulate();
+      const d = B.d, c = cfg.water;
+      const avg = (W / FW) * (H / FH) / (PSP * PSP);
+      const gain = 0.35 + cfg.bright / 100 * 0.9;
+      // a lighter, whiter tint for the brightest caustic lines
+      const hi = [c[0] * 0.45 + 140, c[1] * 0.45 + 140, c[2] * 0.45 + 140];
+      let o = 0;
+      for (let j = 0; j < FH; j++) {
+        const depth = 0.85 + 0.15 * Math.sin(j / FH * Math.PI);
+        for (let i = 0; i < FW; i++, o += 4) {
+          const v = floorB[j * FW + i] / avg;   // 1 = average light
+          const body = 0.28 + 0.32 * Math.min(v, 1.6);
+          const line = v > 1 ? Math.min((v - 1) * 0.7, 1.4) : 0;
+          d[o] = (c[0] * body + hi[0] * line) * gain * depth;
+          d[o + 1] = (c[1] * body + hi[1] * line) * gain * depth;
+          d[o + 2] = (c[2] * body + hi[2] * line) * gain * depth;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,220 @@
+<head>
+  <title>VHS Glitch</title>
+  <meta description="A worn-out tape signal: colour bars tear sideways, channels split apart and bursts of static roll through the picture." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="vhs,glitch,tape,analog,static,tracking,datamosh,chromatic,90s,retro,tv" />
+  <meta property="glitch" label="Glitch Amount" type="number" min="0" max="100" default="55" />
+  <meta property="basePalette" label="Base Image" type="combobox" values="Color Bars,Synthwave,Cyber,Sunset,Phosphor" default="Color Bars" />
+  <meta property="scanlines" label="Scanlines" type="boolean" default="1" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const bool = (v, d) => (v === undefined || v === null ? d : v === true || v === 1 || v === '1' || v === 'true');
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    const BW = 160, BH = 100, NPX = BW * BH;
+    const buf = document.createElement('canvas');
+    buf.width = BW; buf.height = BH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(BW, BH);
+    const out = img.data;
+    const R = new Float32Array(NPX), G = new Float32Array(NPX), B = new Float32Array(NPX);
+
+    const cfg = { amt: 0.55, base: 'Color Bars', scan: true };
+    function readProps() {
+      cfg.amt = clamp(num(get(() => glitch), 55), 0, 100) / 100;
+      cfg.base = String(get(() => basePalette, 'Color Bars'));
+      cfg.scan = bool(get(() => scanlines, true), true);
+    }
+    function onglitchChanged() { readProps(); }
+    function onbasePaletteChanged() { readProps(); }
+    function onscanlinesChanged() { readProps(); }
+
+    const BARS = [[235, 235, 235], [235, 225, 20], [20, 225, 235], [20, 230, 40], [235, 30, 225], [240, 30, 40], [30, 50, 240]];
+    const LOW = [[30, 50, 240], [10, 10, 20], [235, 30, 225], [10, 10, 20], [20, 225, 235], [10, 10, 20], [235, 235, 235]];
+    const lerp3 = (a, b, k, o) => { o[0] = a[0] + (b[0] - a[0]) * k; o[1] = a[1] + (b[1] - a[1]) * k; o[2] = a[2] + (b[2] - a[2]) * k; };
+    const ramp = (stops, k, o) => {
+      k = clamp(k, 0, 0.9999) * (stops.length - 1);
+      const i = k | 0;
+      lerp3(stops[i], stops[i + 1], k - i, o);
+    };
+    const SYN = [[40, 8, 110], [140, 20, 160], [255, 40, 140], [255, 140, 60], [255, 220, 90]];
+    const SUN = [[255, 210, 80], [255, 120, 30], [230, 40, 60], [120, 20, 110], [40, 10, 70]];
+    const PHO = [[0, 30, 8], [10, 140, 40], [80, 255, 120], [200, 255, 210]];
+    const CYA = [0, 230, 255], MAG = [255, 0, 200], SUNT = [255, 235, 90], SUNB = [255, 40, 140];
+    const tmp = [0, 0, 0];
+
+    function base(u, v, t, o) {
+      switch (cfg.base) {
+        case 'Synthwave': {
+          if (v < 0.6) {
+            ramp(SYN, v / 0.6 * 0.9, o);
+            const du = (u - 0.5) * 1.6, dv = v - 0.36, d2 = du * du + dv * dv;
+            if (d2 < 0.06) {
+              lerp3(SUNT, SUNB, clamp((v - 0.12) / 0.48, 0, 1), o);
+              if (v > 0.38 && ((v * 40 - t * 1.5) % 2 + 2) % 2 < 0.4 + (v - 0.38) * 6) { o[0] *= 0.25; o[1] *= 0.2; o[2] *= 0.4; }
+            }
+          } else {
+            const dz = v - 0.58;
+            const z = 0.7 / dz, gx = (u - 0.5) / dz;
+            o[0] = 30; o[1] = 6; o[2] = 50;
+            const fz = ((z + t * 2.2) % 1 + 1) % 1, fx = ((gx * 1.4 + 0.5) % 1 + 1) % 1;
+            if (fz < 0.1 + dz * 0.6 || fx < 0.07) { o[0] = 255; o[1] = 40; o[2] = 200; }
+          }
+          return;
+        }
+        case 'Cyber': {
+          const s = Math.sin((u * 2.2 + v * 1.3) * 5 - t * 1.6) * 0.5 + 0.5;
+          lerp3(CYA, MAG, s, o);
+          const k = 0.72 + 0.28 * Math.sin(v * 7 + t * 0.9);
+          o[0] *= k; o[1] *= k; o[2] *= k;
+          return;
+        }
+        case 'Sunset': {
+          ramp(SUN, v + 0.06 * Math.sin(u * 5 - t * 0.7) + 0.03 * Math.sin(t * 0.5), o);
+          return;
+        }
+        case 'Phosphor': {
+          const s = 0.5 + 0.25 * Math.sin(u * 7 + t * 0.8) + 0.25 * Math.sin(v * 9 - t * 1.3 + u * 3);
+          ramp(PHO, s * 0.9, o);
+          // blocky "text" rows
+          if (((v * 14) | 0) % 2 === 0 && Math.sin(((u * 30) | 0) * 12.9898 + ((v * 14) | 0) * 78.233) > 0.2) { o[0] += 40; o[1] += 90; o[2] += 50; }
+          return;
+        }
+        default: {
+          if (v < 0.67) { const b = BARS[Math.min(6, (u * 7) | 0)]; o[0] = b[0]; o[1] = b[1]; o[2] = b[2]; }
+          else if (v < 0.76) { const b = LOW[Math.min(6, (u * 7) | 0)]; o[0] = b[0]; o[1] = b[1]; o[2] = b[2]; }
+          else if (u < 0.6) {
+            const seg = (u / 0.6 * 4) | 0;
+            const c = [[10, 40, 110], [240, 240, 240], [60, 10, 130], [12, 12, 16]][seg];
+            o[0] = c[0]; o[1] = c[1]; o[2] = c[2];
+          } else { const g = (u - 0.6) / 0.4 * 200 + 20; o[0] = g; o[1] = g; o[2] = g; }
+        }
+      }
+    }
+
+    // glitch state
+    const S = { t: 0, track: 0.3, trackV: 0.05, evT: 0.5, tears: [], noise: [], roll: 0, rollT: 0, flick: 0, chromaKick: 0 };
+    const rowOff = new Float32Array(BH), rowNoise = new Float32Array(BH), rowShift = new Float32Array(BH);
+
+    function update(dt) {
+      const a = cfg.amt;
+      S.t += dt;
+      S.track += S.trackV * dt;
+      if (S.track > 1.2) { S.track = -0.2; S.trackV = rand(0.03, 0.12); }
+      S.evT -= dt * (0.15 + a * 2.2);
+      if (S.evT <= 0 && a > 0) {
+        S.evT = rand(0.25, 1.6);
+        const r = Math.random();
+        if (r < 0.45) S.tears.push({ y: rand(0, BH), h: rand(3, 20), off: rand(-1, 1) * (8 + a * 40), life: rand(0.08, 0.35), swap: Math.random() < 0.35 });
+        else if (r < 0.8) S.noise.push({ y: rand(0, BH), h: rand(4, 26), life: rand(0.1, 0.45), v: rand(-60, 60) });
+        else if (r < 0.92) { S.roll = 1; S.rollT = 0; }
+        else { S.flick = 1; S.chromaKick = 1; }
+      }
+      for (const arr of [S.tears, S.noise]) for (let i = arr.length - 1; i >= 0; i--) { arr[i].life -= dt; if (arr[i].v) arr[i].y += arr[i].v * dt; if (arr[i].life <= 0) arr.splice(i, 1); }
+      if (S.roll > 0) { S.rollT += dt; if (S.rollT > 0.9) S.roll = 0; }
+      S.flick = Math.max(0, S.flick - dt * 5);
+      S.chromaKick = Math.max(0, S.chromaKick - dt * 3);
+    }
+
+    function render() {
+      const a = cfg.amt, t = S.t;
+      // base picture
+      for (let y = 0, i = 0; y < BH; y++) {
+        const v = y / BH;
+        for (let x = 0; x < BW; x++, i++) { base(x / BW, v, t, tmp); R[i] = tmp[0]; G[i] = tmp[1]; B[i] = tmp[2]; }
+      }
+      // per-row horizontal displacement
+      const trackY = S.track * BH;
+      for (let y = 0; y < BH; y++) {
+        let off = Math.sin(y * 0.21 + t * 3.1) * a * 1.6 + Math.sin(y * 0.05 - t * 1.3) * a * 2.5;
+        let nz = 0;
+        const dTr = Math.abs(y - trackY);
+        if (dTr < 9) { const k = 1 - dTr / 9; off += k * (6 + a * 24) * Math.sin(y * 1.7 + t * 40); nz += k * (0.25 + a * 0.6); }
+        if (y > BH - 5) { off += (BH - y) * 2.5 * (0.3 + a); nz += 0.3 + a * 0.3; } // head-switching edge
+        for (const tr of S.tears) if (y >= tr.y && y < tr.y + tr.h) off += tr.off;
+        for (const n of S.noise) if (y >= n.y && y < n.y + n.h) nz = Math.max(nz, 0.75 + 0.25 * Math.random());
+        rowOff[y] = off; rowNoise[y] = nz;
+        rowShift[y] = 0;
+      }
+      // vertical roll (lost vertical hold)
+      const rollOff = S.roll > 0 ? Math.floor(Math.pow(S.rollT / 0.9, 1.4) * BH) : 0;
+      const chroma = 1 + a * 3 + S.chromaKick * 6;
+      const grain = 10 + a * 26;
+      const bright = 1 + S.flick * 0.6;
+      for (let y = 0; y < BH; y++) {
+        const sy = (y + rollOff) % BH;
+        const barRow = S.roll > 0 && Math.abs(y - (BH - rollOff)) < 4; // black sync bar while rolling
+        const off = rowOff[sy], nz = rowNoise[sy];
+        let swap = false;
+        for (const tr of S.tears) if (sy >= tr.y && sy < tr.y + tr.h && tr.swap) swap = true;
+        let pr = 0, pg = 0, pb = 0;
+        const row = sy * BW;
+        for (let x = 0; x < BW; x++) {
+          const xr = clamp(Math.round(x - off - chroma), 0, BW - 1);
+          const xg = clamp(Math.round(x - off), 0, BW - 1);
+          const xb = clamp(Math.round(x - off + chroma), 0, BW - 1);
+          let r = R[row + xr], g = G[row + xg], b = B[row + xb];
+          if (swap) { const s = r; r = b; b = g; g = s; }
+          // chroma smear along the scanline
+          pr = pr * 0.45 + r * 0.55; pg = pg * 0.25 + g * 0.75; pb = pb * 0.45 + b * 0.55;
+          r = pr; g = pg; b = pb;
+          const n = (Math.random() - 0.5) * grain;
+          r += n; g += n; b += n;
+          if (nz > 0) { const s = Math.random() * 255; r += (s - r) * nz; g += (s - g) * nz; b += (s - b) * nz; }
+          const o = (y * BW + x) * 4;
+          if (barRow) { out[o] = 4; out[o + 1] = 4; out[o + 2] = 8; }
+          else { out[o] = r * bright; out[o + 1] = g * bright; out[o + 2] = b * bright; }
+          out[o + 3] = 255;
+        }
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+      if (cfg.scan) {
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+        // slow bright interference bar
+        const by = ((t * 22) % (H + 60)) - 30;
+        const g = ctx.createLinearGradient(0, by - 24, 0, by + 24);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.10)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, by - 24, W, 48);
+      }
+      // soft CRT vignette
+      const vg = ctx.createRadialGradient(160, 100, 90, 160, 100, 200);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

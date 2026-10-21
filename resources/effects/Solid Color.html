@@ -1,0 +1,47 @@
+<head>
+  <title>Solid Color</title>
+  <meta description="One steady color across your entire setup." />
+  <meta publisher="Lumora" />
+  <meta category="Classic" />
+  <meta energy="calm" />
+  <meta palette="mono" />
+  <meta tags="static,simple" />
+  <meta property="color" label="Color" type="color" default="#3c78ff" />
+  <meta property="brightness" label="Brightness" type="number" min="0" max="100" default="100" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+
+    let fill = 'rgb(60,120,255)';
+
+    function draw() {
+      const c = hexRgb(get(() => color, '#3c78ff'), '#3c78ff');
+      const k = clamp(num(get(() => brightness), 100), 0, 100) / 100;
+      fill = 'rgb(' + Math.round(c[0] * k) + ',' + Math.round(c[1] * k) + ',' + Math.round(c[2] * k) + ')';
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, W, H);
+    }
+    function oncolorChanged() { draw(); }
+    function onbrightnessChanged() { draw(); }
+
+    // Cheap keep-alive loop: just repaint the cached fill each frame.
+    function frame() {
+      requestAnimationFrame(frame);
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, 0, W, H);
+    }
+    draw();
+    requestAnimationFrame(frame);
+  </script>
+</body>

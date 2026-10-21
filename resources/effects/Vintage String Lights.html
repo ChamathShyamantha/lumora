@@ -1,0 +1,159 @@
+<head>
+  <title>Vintage String Lights</title>
+  <meta description="Swags of big old-fashioned glass bulbs glowing against the night, gently twinkling like a porch at the holidays." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="calm" />
+  <meta palette="warm" />
+  <meta tags="string lights,fairy lights,bulbs,christmas,holiday,festoon,patio,retro,cozy,party" />
+  <meta property="bulbStyle" label="Bulb Style" type="combobox" values="Multicolour,Warm White,Amber,Pastel" default="Multicolour" />
+  <meta property="twinkle" label="Twinkle" type="number" min="0" max="100" default="35" />
+  <meta property="chase" label="Slow Chase" type="boolean" default="0" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const bool = (v, d) => (v === undefined || v === null ? d : v === true || v === 1 || v === '1' || v === 'true');
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    const STYLES = {
+      'Multicolour': [[255, 40, 28], [30, 205, 70], [255, 135, 15], [45, 95, 255], [255, 55, 160]],
+      'Warm White': [[255, 172, 78]],
+      'Amber': [[255, 140, 35], [255, 120, 25]],
+      'Pastel': [[255, 165, 200], [160, 215, 255], [180, 255, 190], [255, 225, 150], [210, 180, 255]]
+    };
+    // swags: each is a list of anchor points; the wire sags between neighbours
+    const SWAGS = [
+      { pts: [[-30, 2], [350, 2]], sag: 44, n: 10 },
+      { pts: [[-20, 70], [160, 80], [340, 70]], sag: 30, n: 5 },
+      { pts: [[-30, 128], [350, 128]], sag: 40, n: 10 }
+    ];
+    const cfg = { style: 'Multicolour', twinkle: 35, chase: false };
+    function readProps() {
+      cfg.style = String(get(() => bulbStyle, 'Multicolour'));
+      cfg.twinkle = clamp(num(get(() => twinkle), 35), 0, 100);
+      cfg.chase = bool(get(() => chase, false), false);
+    }
+    function onbulbStyleChanged() { readProps(); }
+    function ontwinkleChanged() { readProps(); }
+    function onchaseChanged() { readProps(); }
+
+    function wireAt(sw, s) { // s in 0..1 along the whole swag chain
+      const spans = sw.pts.length - 1;
+      const f = clamp(s, 0, 0.99999) * spans, k = Math.floor(f), u = f - k;
+      const a = sw.pts[k], b = sw.pts[k + 1];
+      return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u + sw.sag * 4 * u * (1 - u)];
+    }
+
+    const bulbs = [];
+    let gi = 0;
+    for (let si = 0; si < SWAGS.length; si++) {
+      const sw = SWAGS[si], spans = sw.pts.length - 1;
+      for (let sp = 0; sp < spans; sp++) {
+        for (let i = 0; i < sw.n; i++) {
+          const s = (sp + (i + 0.5) / sw.n) / spans;
+          bulbs.push({ sw: si, s, idx: gi++, ph: Math.random() * 6.28, fr: 0.3 + Math.random() * 0.5, dip: 0, next: 1 + Math.random() * 6 });
+        }
+      }
+    }
+
+    let t = 0;
+    function update(dt) {
+      t += dt;
+      const tw = cfg.twinkle / 100;
+      for (const b of bulbs) {
+        b.next -= dt;
+        if (b.next <= 0) { b.dip = 1; b.next = (2 + Math.random() * 10) / (0.15 + tw); }
+        b.dip = Math.max(0, b.dip - dt / 1.6);
+      }
+    }
+
+    function render() {
+      const pal = STYLES[cfg.style] || STYLES['Multicolour'];
+      const tw = cfg.twinkle / 100;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#03040c');
+      bg.addColorStop(1, '#0b0710');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      // light state per bulb
+      const lit = bulbs.map((b) => {
+        let e = 0.9 + 0.1 * Math.sin(t * b.fr * 2 + b.ph) * tw;
+        // a twinkle is a slow dim and recover, like a loose old filament
+        const d = Math.sin(Math.PI * b.dip);
+        e *= 1 - tw * 0.7 * d * d;
+        if (cfg.chase) {
+          const w = 0.5 + 0.5 * Math.cos((b.idx / 4.5 - t * 0.35) * Math.PI * 2);
+          e *= 0.45 + 0.55 * w;
+        }
+        return e;
+      });
+      ctx.globalCompositeOperation = 'lighter';
+      // glow pools behind the bulbs
+      for (let i = 0; i < bulbs.length; i++) {
+        const b = bulbs[i], c = pal[(b.idx + b.sw * 2) % pal.length], e = lit[i];
+        const p = wireAt(SWAGS[b.sw], b.s);
+        const sway = Math.sin(t * 0.7 + b.idx * 0.6) * 1.2;
+        const x = p[0] + sway, y = p[1] + 13;
+        const r = 50;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, rgba(c, 0.9 * e));
+        g.addColorStop(0.3, rgba(c, 0.38 * e));
+        g.addColorStop(1, rgba(c, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+        b.x = x; b.y = y;
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // the wire
+      ctx.strokeStyle = 'rgba(20,16,10,0.9)';
+      ctx.lineWidth = 2;
+      for (const sw of SWAGS) {
+        ctx.beginPath();
+        for (let k = 0; k <= 60; k++) { const p = wireAt(sw, k / 60); if (k === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]); }
+        ctx.stroke();
+      }
+      // bulbs: socket + glass
+      for (let i = 0; i < bulbs.length; i++) {
+        const b = bulbs[i], c = pal[(b.idx + b.sw * 2) % pal.length], e = lit[i];
+        const x = b.x, y = b.y;
+        ctx.fillStyle = 'rgba(25,30,22,1)';
+        ctx.fillRect(x - 4, y - 14, 8, 7);
+        ctx.beginPath();
+        ctx.moveTo(x - 6, y - 7);
+        ctx.bezierCurveTo(x - 12, y + 1, x - 7, y + 11, x, y + 16);
+        ctx.bezierCurveTo(x + 7, y + 11, x + 12, y + 1, x + 6, y - 7);
+        ctx.closePath();
+        const g = ctx.createRadialGradient(x, y + 2, 0, x, y + 3, 14);
+        const hot = [c[0] * 0.5 + 128 * e, c[1] * 0.5 + 128 * e, c[2] * 0.5 + 128 * e];
+        g.addColorStop(0, rgba(hot, 1));
+        g.addColorStop(0.5, rgba([c[0] * e, c[1] * e, c[2] * e], 1));
+        g.addColorStop(1, rgba([c[0] * e * 0.6, c[1] * e * 0.6, c[2] * e * 0.6], 1));
+        ctx.fillStyle = g;
+        ctx.fill();
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

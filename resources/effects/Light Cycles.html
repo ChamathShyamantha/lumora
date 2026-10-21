@@ -1,0 +1,252 @@
+<head>
+  <title>Light Cycles</title>
+  <meta description="Glowing riders race across a dark grid, carving solid walls of light and swerving to survive until one crashes in a burst." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="lightcycle,racing,grid,neon,trails,arena,ai,game,cyber,80s,retro" />
+  <meta property="riders" label="Rider Count" type="number" min="2" max="6" step="1" default="4" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+  <meta property="persistence" label="Wall Persistence" type="number" min="0" max="100" default="80" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    const GW = 24, GH = 15, CW = W / GW, CH = H / GH, N = GW * GH;
+    const COLORS = [[0, 240, 255], [255, 138, 0], [255, 43, 214], [140, 255, 43], [255, 230, 43], [120, 90, 255]];
+    const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const cfg = { riders: 4, speed: 50, persist: 80 };
+    function readProps() {
+      cfg.riders = clamp(Math.round(num(get(() => riders), 4)), 2, 6);
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.persist = clamp(num(get(() => persistence), 80), 0, 100);
+    }
+    function onridersChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function onpersistenceChanged() { readProps(); }
+
+    const owner = new Int8Array(N).fill(-1); // which rider's wall occupies each cell
+    const born = new Float32Array(N);       // tick when the wall was laid
+    const seen = new Int32Array(N), q = new Int32Array(N);
+    let seenMark = 0;
+    const R = { bikes: [], tick: 0, phase: 'play', timer: 0, parts: [], rings: [], flash: 0, flashCol: [255, 255, 255], rounds: 0, winner: -1, roundT: 0, fade: 1 };
+
+    const wallLife = () => (cfg.persist >= 100 ? Infinity : 1.5 + cfg.persist * 0.2); // seconds
+    const rate = () => 4 + cfg.speed * 0.14; // cells per second
+
+    function newRound() {
+      owner.fill(-1);
+      R.bikes = [];
+      const n = cfg.riders;
+      const off = Math.random() * Math.PI * 2;
+      for (let i = 0; i < n; i++) {
+        const a = off + i / n * Math.PI * 2;
+        const x = clamp(Math.round(11.5 + Math.cos(a) * 8), 1, GW - 2), y = clamp(Math.round(7 + Math.sin(a) * 4.5), 1, GH - 2);
+        // head off along the tangent so nobody starts nose to nose
+        const tx = -Math.sin(a), ty = Math.cos(a);
+        const d = Math.abs(tx) > Math.abs(ty) ? (tx > 0 ? 0 : 2) : (ty > 0 ? 1 : 3);
+        R.bikes.push({ x, y, px: x, py: y, d, alive: true, col: COLORS[i % COLORS.length], trail: [], dead: 0, id: i });
+      }
+      for (const b of R.bikes) { const c = b.y * GW + b.x; if (owner[c] < 0) { owner[c] = b.id; born[c] = R.tick; b.trail.push(c); } }
+      R.phase = 'play'; R.timer = 0; R.roundT = 0; R.winner = -1; R.rounds++; R.fade = 0;
+    }
+
+    function blocked(c) {
+      if (owner[c] < 0) return false;
+      return true;
+    }
+    function expire() {
+      const life = wallLife();
+      if (!isFinite(life)) return;
+      const lt = life * rate();
+      for (const b of R.bikes) {
+        while (b.trail.length > 1 && R.tick - born[b.trail[0]] > lt) {
+          const c = b.trail.shift();
+          if (owner[c] === b.id) owner[c] = -1;
+        }
+      }
+    }
+    function area(start, heads, cap) {
+      seenMark++;
+      let h = 0, t = 0;
+      q[t++] = start; seen[start] = seenMark;
+      while (h < t && t < cap) {
+        const c = q[h++], cx = c % GW, cy = (c / GW) | 0;
+        for (const [dx, dy] of DIRS) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+          const n = ny * GW + nx;
+          if (seen[n] === seenMark || owner[n] >= 0 || heads.has(n)) continue;
+          seen[n] = seenMark; q[t++] = n;
+        }
+      }
+      return t;
+    }
+
+    function crash(b) {
+      b.alive = false; b.dead = 1;
+      const x = (b.x + 0.5) * CW, y = (b.y + 0.5) * CH;
+      for (let i = 0; i < 36; i++) {
+        const a = rand(0, Math.PI * 2), s = rand(40, 180);
+        R.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.5, 1.1), col: Math.random() < 0.3 ? [255, 255, 255] : b.col });
+      }
+      R.rings.push({ x, y, r: 6, life: 0.6, col: b.col });
+      R.flash = Math.max(R.flash, 0.5); R.flashCol = b.col;
+      for (const c of b.trail) if (owner[c] === b.id) owner[c] = -1; // walls derez
+    }
+
+    function tick() {
+      R.tick++;
+      expire();
+      const alive = R.bikes.filter((b) => b.alive);
+      const heads = new Set(alive.map((b) => b.y * GW + b.x));
+      const plans = [];
+      for (const b of alive) {
+        let best = -1, bs = -1e9;
+        for (const turn of [0, 1, 3]) {
+          const d = (b.d + turn) % 4;
+          const nx = b.x + DIRS[d][0], ny = b.y + DIRS[d][1];
+          if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+          const c = ny * GW + nx;
+          if (blocked(c) || heads.has(c)) continue;
+          let s = Math.min(area(c, heads, 160), 120) * 2 + (turn === 0 ? 6 : 0) + rand(0, 7);
+          // keep away from other riders' noses
+          for (const o of alive) if (o !== b) { const ox = o.x + DIRS[o.d][0], oy = o.y + DIRS[o.d][1]; if (ox === nx && oy === ny) s -= 40; }
+          if (s > bs) { bs = s; best = d; }
+        }
+        plans.push([b, best]);
+      }
+      const targets = new Map();
+      for (const [b, d] of plans) {
+        b.px = b.x; b.py = b.y;
+        if (d < 0) { // boxed in: ride straight into the wall
+          const nx = b.x + DIRS[b.d][0], ny = b.y + DIRS[b.d][1];
+          if (nx >= 0 && ny >= 0 && nx < GW && ny < GH) { b.x = nx; b.y = ny; }
+          crash(b); continue;
+        }
+        b.d = d; b.x += DIRS[d][0]; b.y += DIRS[d][1];
+        const c = b.y * GW + b.x;
+        if (targets.has(c)) { crash(b); const o = targets.get(c); if (o.alive) crash(o); continue; }
+        targets.set(c, b);
+      }
+      for (const [c, b] of targets) if (b.alive) { owner[c] = b.id; born[c] = R.tick; b.trail.push(c); }
+      const left = R.bikes.filter((b) => b.alive);
+      if (left.length <= 1) {
+        R.phase = 'over'; R.timer = 0;
+        R.winner = left.length ? left[0].id : -1;
+        R.flash = 1; R.flashCol = left.length ? left[0].col : [255, 255, 255];
+      }
+    }
+
+    let acc = 0;
+    function update(dt) {
+      R.flash = Math.max(0, R.flash - dt * 2);
+      R.fade = Math.min(1, R.fade + dt * 3);
+      for (const b of R.bikes) b.dead = Math.max(0, b.dead - dt * 1.2);
+      for (let i = R.parts.length - 1; i >= 0; i--) { const p = R.parts[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 1 - 1.8 * dt; p.vy *= 1 - 1.8 * dt; p.life -= dt; if (p.life <= 0) R.parts.splice(i, 1); }
+      for (let i = R.rings.length - 1; i >= 0; i--) { const r = R.rings[i]; r.r += 160 * dt; r.life -= dt; if (r.life <= 0) R.rings.splice(i, 1); }
+      if (R.phase === 'play') {
+        R.roundT += dt;
+        acc += dt * rate();
+        let n = 0;
+        while (acc >= 1 && n < 10 && R.phase === 'play') { tick(); acc -= 1; n++; }
+        if (acc >= 1) acc = 0;
+        if (R.roundT > 45) { R.phase = 'over'; R.timer = 0; R.winner = -1; R.flash = 1; R.flashCol = [255, 255, 255]; for (const b of R.bikes) if (b.alive) crash(b); }
+      } else {
+        R.timer += dt;
+        if (R.timer > 2.2) { newRound(); acc = 0; }
+      }
+    }
+
+    function glow(x, y, r, col, a) {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    let clock = 0;
+    function render() {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const bg = ctx.createRadialGradient(160, 100, 20, 160, 100, 210);
+      bg.addColorStop(0, 'rgba(10,28,60,1)');
+      bg.addColorStop(1, 'rgba(4,8,24,1)');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      // arena grid
+      ctx.fillStyle = 'rgba(40,140,255,0.16)';
+      for (let i = 0; i <= GW; i++) ctx.fillRect(Math.round(i * CW) - 0.5, 0, 1, H);
+      for (let j = 0; j <= GH; j++) ctx.fillRect(0, Math.round(j * CH) - 0.5, W, 1);
+      ctx.strokeStyle = 'rgba(60,170,255,0.55)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 1.5, W - 3, H - 3);
+
+      ctx.globalCompositeOperation = 'lighter';
+      const f = R.phase === 'play' ? clamp(acc, 0, 1) : 1;
+      const overFade = R.phase === 'over' ? clamp(1 - (R.timer - 1.4) / 0.8, 0, 1) : 1;
+      const life = wallLife() * rate();
+      const ctr = (c) => [((c % GW) + 0.5) * CW, (((c / GW) | 0) + 0.5) * CH];
+      ctx.lineCap = 'square';
+      ctx.lineJoin = 'miter';
+      for (const b of R.bikes) {
+        const alpha = (b.alive ? 1 : b.dead) * overFade * R.fade;
+        if (alpha <= 0.01 || !b.trail.length) continue;
+        const hx = (b.px + (b.x - b.px) * f + 0.5) * CW, hy = (b.py + (b.y - b.py) * f + 0.5) * CH;
+        for (const [lw, al] of [[CW * 1.9, 0.22], [CW * 0.62, 0.95]]) {
+          ctx.lineWidth = lw;
+          const tr = b.trail;
+          for (let i = 0; i < tr.length; i++) {
+            const age = R.tick - born[tr[i]];
+            const k = isFinite(life) ? clamp(1 - age / life, 0, 1) : 1;
+            const p0 = ctr(tr[i]);
+            const p1 = i + 1 < tr.length ? ctr(tr[i + 1]) : (b.alive ? [hx, hy] : p0);
+            ctx.strokeStyle = rgba(mix(b.col, [255, 255, 255], al > 0.5 ? 0.15 : 0), al * alpha * (0.35 + 0.65 * k));
+            ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0] + 0.01, p1[1]); ctx.stroke();
+          }
+        }
+        if (b.alive) {
+          const win = R.phase === 'over' && R.winner === b.id;
+          const pulse = win ? 0.6 + 0.4 * Math.sin(clock * 14) : 1;
+          glow(hx, hy, win ? 70 : 34, b.col, 0.75 * pulse * overFade);
+          glow(hx, hy, 10, [255, 255, 255], 0.95 * overFade);
+        }
+      }
+      for (const p of R.parts) { ctx.fillStyle = rgba(p.col, p.life); ctx.fillRect(p.x - 2.5, p.y - 2.5, 5, 5); }
+      for (const r of R.rings) {
+        glow(r.x, r.y, r.r * 0.8 + 10, r.col, 0.5 * r.life);
+        ctx.strokeStyle = rgba(r.col, r.life * 1.4);
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      if (R.flash > 0.01) { ctx.fillStyle = rgba(R.flashCol, R.flash * 0.35); ctx.fillRect(0, 0, W, H); }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      clock += dt;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    newRound();
+    requestAnimationFrame(frame);
+  </script>
+</body>

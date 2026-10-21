@@ -1,0 +1,125 @@
+<head>
+  <title>Lava Lamp</title>
+  <meta description="Soft glowing blobs that drift, merge and split like a retro lava lamp." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="calm" />
+  <meta palette="warm" />
+  <meta tags="calm,retro,ambient" />
+  <meta property="color1" label="Color 1" type="color" default="#ff2a00" />
+  <meta property="color2" label="Color 2" type="color" default="#ffb300" />
+  <meta property="bgColor" label="Background Color" type="color" default="#1a0010" />
+  <meta property="blobs" label="Blob Count" type="number" min="2" max="12" step="1" default="6" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="30" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    const hash = (a, b) => { const s = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453; return s - Math.floor(s); };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const MAXB = 12;
+    // Fixed per-blob motion parameters (deterministic so blobs keep their paths).
+    const P = [];
+    for (let k = 0; k < MAXB; k++) {
+      P.push({
+        fx: 0.13 + hash(k, 1) * 0.17, fy: 0.07 + hash(k, 2) * 0.12,
+        px: hash(k, 3) * 6.283, py: hash(k, 4) * 6.283,
+        r: 24 + hash(k, 5) * 16, mix: k % 2 === 0 ? 0.08 + hash(k, 6) * 0.25 : 0.67 + hash(k, 6) * 0.25
+      });
+    }
+    const bx = new Float32Array(MAXB), by = new Float32Array(MAXB), br2 = new Float32Array(MAXB), bc = new Float32Array(MAXB * 3);
+    const B = buffer(80, 50);
+    const cfg = { c1: [255, 42, 0], c2: [255, 179, 0], bg: [26, 0, 16], blobs: 6, speed: 30 };
+    let t = 0;
+
+    function readProps() {
+      cfg.c1 = hexRgb(get(() => color1, '#ff2a00'), '#ff2a00');
+      cfg.c2 = hexRgb(get(() => color2, '#ffb300'), '#ffb300');
+      cfg.bg = hexRgb(get(() => bgColor, '#1a0010'), '#1a0010');
+      cfg.blobs = Math.round(clamp(num(get(() => blobs), 6), 2, MAXB));
+      cfg.speed = clamp(num(get(() => speed), 30), 0, 100);
+    }
+    function oncolor1Changed() { readProps(); }
+    function oncolor2Changed() { readProps(); }
+    function onbgColorChanged() { readProps(); }
+    function onblobsChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt * (0.1 + cfg.speed * 0.03);
+      if (t > 1e5) t = 0;
+    }
+
+    function render() {
+      const n = cfg.blobs, c1 = cfg.c1, c2 = cfg.c2, bg = cfg.bg;
+      for (let k = 0; k < n; k++) {
+        const p = P[k];
+        bx[k] = 160 + 135 * Math.sin(t * p.fx + p.px);
+        by[k] = 100 + 88 * Math.sin(t * p.fy + p.py);
+        const r = p.r * (1 + 0.1 * Math.sin(t * 0.7 + k * 1.7));
+        br2[k] = r * r;
+        bc[k * 3] = c1[0] + (c2[0] - c1[0]) * p.mix;
+        bc[k * 3 + 1] = c1[1] + (c2[1] - c1[1]) * p.mix;
+        bc[k * 3 + 2] = c1[2] + (c2[2] - c1[2]) * p.mix;
+      }
+      const d = B.d, bw = B.w, bh = B.h, sx = W / bw, sy = H / bh;
+      let o = 0;
+      for (let j = 0; j < bh; j++) {
+        const y = (j + 0.5) * sy;
+        for (let i = 0; i < bw; i++, o += 4) {
+          const x = (i + 0.5) * sx;
+          let f = 0, cr = 0, cg = 0, cb = 0;
+          for (let k = 0; k < n; k++) {
+            const dx = x - bx[k], dy = y - by[k];
+            const w = br2[k] / (dx * dx + dy * dy + 1);
+            f += w; cr += w * bc[k * 3]; cg += w * bc[k * 3 + 1]; cb += w * bc[k * 3 + 2];
+          }
+          const inv = 1 / f;
+          const body = smooth(0.85, 1.15, f) * (0.8 + 0.2 * clamp(f - 1, 0, 1));
+          const glow = smooth(0.3, 0.85, f) * 0.22;
+          const m = body > glow ? body : glow;
+          d[o] = bg[0] + (cr * inv - bg[0]) * m;
+          d[o + 1] = bg[1] + (cg * inv - bg[1]) * m;
+          d[o + 2] = bg[2] + (cb * inv - bg[2]) * m;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

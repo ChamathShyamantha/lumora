@@ -1,0 +1,158 @@
+<head>
+  <title>Event Horizon</title>
+  <meta description="A black hole holds court at the centre of your setup, its glowing accretion disk swirling around a perfect shadow and bent into a blazing ring of light." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="calm" />
+  <meta palette="warm" />
+  <meta tags="space,black hole,accretion disk,gravity,orbit,glow,singularity,cinematic" />
+  <meta property="spinSpeed" label="Spin Speed" type="number" min="1" max="100" default="35" tooltip="How fast the disk swirls" />
+  <meta property="diskColor" label="Disk Color" type="color" default="#ff8a2e" />
+  <meta property="diskTilt" label="Disk Tilt" type="number" min="0" max="100" default="35" tooltip="Low is nearly edge-on, high looks down onto the disk" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, LW = 160, LH = 100, S = W / LW, CX = 160, CY = 100;
+    const R_SHADOW = 25, R_PHOTON = 29, R_IN = 36, R_OUT = 165;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const sstep = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+    const toRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+
+    let seed = 5521;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const PERM = new Uint16Array(512), VAL = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { PERM[i] = i; VAL[i] = rand(); }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const s = PERM[i]; PERM[i] = PERM[j]; PERM[j] = s; }
+    for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let fx = x - xi, fy = y - yi;
+      const X = xi & 255, Y = yi & 255;
+      const a = VAL[PERM[PERM[X] + Y]], b = VAL[PERM[PERM[X + 1] + Y]];
+      const c = VAL[PERM[PERM[X] + Y + 1]], d = VAL[PERM[PERM[X + 1] + Y + 1]];
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+
+    const cfg = { spin: 35, rgb: [255, 138, 46], tilt: 35 };
+    function readProps() {
+      cfg.spin = numIn(read(() => spinSpeed, 35), 35, 0, 100);
+      cfg.rgb = toRgb(read(() => diskColor, '#ff8a2e'), 'ff8a2e');
+      cfg.tilt = numIn(read(() => diskTilt, 35), 35, 0, 100);
+    }
+    function onspinSpeedChanged() { readProps(); }
+    function ondiskColorChanged() { readProps(); }
+    function ondiskTiltChanged() { readProps(); }
+
+    const buf = document.createElement('canvas');
+    buf.width = LW; buf.height = LH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(LW, LH);
+    const px = img.data;
+
+    // inner orbits run faster (Keplerian shear). Two texture layers, each restarted
+    // while invisible, keep the shear from winding the pattern into noise forever.
+    let spinT = 0;
+    const PERIOD = 9;
+    let ph1 = 0, ph2 = 0, wt1 = 1;
+    function swirl(r, phi, omega) {
+      return diskLight(r, phi - omega * ph1) * wt1 + diskLight(r, phi + 2.1 - omega * ph2) * (1 - wt1);
+    }
+
+    // disk brightness at a radius / orbit angle (angle already includes rotation)
+    function diskLight(r, phi) {
+      const u = r * 0.075;
+      const c = Math.cos(phi), s = Math.sin(phi);
+      let n = noise(u, 2.4 * c + 3.1) * 0.5 + noise(u + 9.7, 2.4 * s + 7.3) * 0.5;
+      n = n * 0.7 + 0.3 * (noise(u * 2.3 + 4.4, 4.8 * c + 1.9) * 0.5 + noise(u * 2.3 + 1.2, 4.8 * s + 5.5) * 0.5);
+      const fall = Math.pow(R_IN / r, 1.35);
+      const edge = sstep(R_IN - 4, R_IN + 6, r) * (1 - sstep(R_OUT * 0.55, R_OUT, r));
+      return fall * edge * (0.35 + 1.3 * n * n);
+    }
+
+    function shade(v, base, out) {
+      // deep ember -> chosen disk colour -> white-hot
+      if (v < 0.5) {
+        const k = v / 0.5;
+        out[0] = base[0] * k * (0.55 + 0.45 * k); out[1] = base[1] * k * k * 0.85; out[2] = base[2] * k * k * 0.7;
+      } else {
+        const k = clamp01((v - 0.5) / 0.75);
+        out[0] = base[0] + (255 - base[0]) * k; out[1] = base[1] * 0.85 + (250 - base[1] * 0.85) * k; out[2] = base[2] * 0.7 + (235 - base[2] * 0.7) * k;
+      }
+    }
+
+    const col = [0, 0, 0];
+    function render() {
+      const elev = (6 + cfg.tilt * 0.5) * Math.PI / 180;
+      const se = Math.sin(elev);
+      const base = cfg.rgb;
+      const lensW = 1 - 0.55 * se;
+      const w0 = 0.6 + 0.5 * (cfg.spin / 100);
+      let o = 0;
+      for (let j = 0; j < LH; j++) {
+        const y = (j + 0.5) * S - CY;
+        for (let i = 0; i < LW; i++) {
+          const x = (i + 0.5) * S - CX;
+          const rho = Math.sqrt(x * x + y * y);
+          // faint ember haze that fills the sky around the hole
+          let v = 0.2 * Math.exp(-rho / 120) + 0.085;
+          // direct image of the disk
+          const dz = y / se;
+          const rd = Math.sqrt(x * x + dz * dz);
+          let L = 0, fa = 0;
+          if (rd > R_IN - 5 && rd < R_OUT) {
+            const omega = w0 * Math.pow(R_IN / rd, 1.5);
+            const dop = 1 + 0.45 * (-x / rd);
+            L = swirl(rd, Math.atan2(dz, x), omega) * dop;
+            fa = clamp01(L * 2.2) * sstep(R_IN - 4, R_IN + 3, rd);
+          }
+          // the far side of the disk, bent up and over (and under) the shadow
+          let lens = 0;
+          if (rho > R_PHOTON - 1 && rho < R_PHOTON + 40) {
+            const rl = R_IN + (rho - R_PHOTON) * 3.2;
+            const ang = Math.atan2(y, x);
+            const over = y < 0 ? 1 : 0.45;
+            const omega = w0 * Math.pow(R_IN / rl, 1.5);
+            lens = swirl(rl, -ang, omega) * over * lensW * (0.85 + 0.3 * Math.abs(Math.sin(ang)));
+          }
+          const ring = Math.exp(-((rho - R_PHOTON) * (rho - R_PHOTON)) / 3.2) * 1.15;
+          const shadow = sstep(R_SHADOW - 1.5, R_SHADOW + 1.5, rho);
+          // near half of the disk passes in front of the shadow, far half behind it
+          const fr = sstep(-2.5, 2.5, y);
+          v = v * shadow + (lens + ring) * shadow * (1 - fa * fr) + L * (fr + (1 - fr) * shadow);
+          shade(v, base, col);
+          px[o] = col[0]; px[o + 1] = col[1]; px[o + 2] = col[2]; px[o + 3] = 255;
+          o += 4;
+        }
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      spinT += dt * (0.15 + cfg.spin * 0.02);
+      ph1 = spinT % PERIOD; ph2 = (spinT + PERIOD / 2) % PERIOD;
+      wt1 = 1 - Math.abs(2 * ph1 / PERIOD - 1);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

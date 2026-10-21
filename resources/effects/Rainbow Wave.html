@@ -1,0 +1,110 @@
+<head>
+  <title>Rainbow Wave</title>
+  <meta description="Smooth rainbow bands sweeping across your setup in any direction." />
+  <meta publisher="Lumora" />
+  <meta category="Classic" />
+  <meta energy="lively" />
+  <meta palette="rainbow" />
+  <meta tags="rainbow,classic,colorful" />
+  <meta property="direction" label="Direction" type="combobox" values="Left,Right,Up,Down,Diagonal,Radial" default="Right" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="40" />
+  <meta property="scale" label="Band Width" type="number" min="1" max="100" default="50" />
+  <meta property="saturation" label="Saturation" type="number" min="0" max="100" default="100" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hsvTo(h, s, v, d, o) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      let r, g, b;
+      switch (i) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        default: r = v; g = p; b = q;
+      }
+      d[o] = r * 255; d[o + 1] = g * 255; d[o + 2] = b * 255; d[o + 3] = 255;
+    }
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const B = buffer(80, 50);
+    const cfg = { direction: 'Right', speed: 40, scale: 50, saturation: 100 };
+    let phase = 0;
+
+    function readProps() {
+      cfg.direction = String(get(() => direction, 'Right'));
+      cfg.speed = clamp(num(get(() => speed), 40), 0, 100);
+      cfg.scale = clamp(num(get(() => scale), 50), 1, 100);
+      cfg.saturation = clamp(num(get(() => saturation), 100), 0, 100);
+    }
+    function ondirectionChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function onscaleChanged() { readProps(); }
+    function onsaturationChanged() { readProps(); }
+
+    function update(dt) {
+      phase += dt * (0.02 + cfg.speed * 0.012);
+      phase -= Math.floor(phase);
+    }
+
+    function render() {
+      const wl = 60 + cfg.scale * 6; // canvas pixels per full rainbow
+      const s = cfg.saturation / 100;
+      const d = B.d, bw = B.w, bh = B.h, sx = W / bw, sy = H / bh;
+      const dir = cfg.direction;
+      let o = 0;
+      for (let j = 0; j < bh; j++) {
+        const y = (j + 0.5) * sy;
+        for (let i = 0; i < bw; i++, o += 4) {
+          const x = (i + 0.5) * sx;
+          let p;
+          switch (dir) {
+            case 'Left': p = x; break;
+            case 'Up': p = y; break;
+            case 'Down': p = -y; break;
+            case 'Diagonal': p = -(x + y) * 0.7071; break;
+            case 'Radial': p = -Math.sqrt((x - 160) * (x - 160) + (y - 100) * (y - 100)); break;
+            default: p = -x;
+          }
+          hsvTo(p / wl + phase, s, 1, d, o);
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,162 @@
+<head>
+  <title>Low Health Warning</title>
+  <meta description="A heart monitor races across the screen while the edges throb blood red with every beat, like your character is one hit from game over." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="heartbeat,ecg,pulse,health,danger,warning,vignette,gaming,monitor,hp" />
+  <meta property="bpm" label="Heart Rate (BPM)" type="number" min="40" max="200" default="118" />
+  <meta property="lineColor" label="Line Color" type="color" default="#39ff88" />
+  <meta property="vignette" label="Vignette Strength" type="number" min="0" max="100" default="70" />
+  <meta property="sweep" label="Sweep Speed" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const floorBright = (c, m) => { const mx = Math.max(c[0], c[1], c[2]); return mx >= m ? c : mx === 0 ? [m, m, m] : c.map((v) => v * m / mx); };
+
+    const cfg = { bpm: 118, line: [57, 255, 136], vig: 70, sweep: 50 };
+    function readProps() {
+      cfg.bpm = clamp(num(get(() => bpm), 118), 20, 240);
+      cfg.line = floorBright(hexRgb(get(() => lineColor, '#39ff88'), '#39ff88'), 120);
+      cfg.vig = clamp(num(get(() => vignette), 70), 0, 100);
+      cfg.sweep = clamp(num(get(() => sweep), 50), 0, 100);
+    }
+    function onbpmChanged() { readProps(); }
+    function onlineColorChanged() { readProps(); }
+    function onvignetteChanged() { readProps(); }
+    function onsweepChanged() { readProps(); }
+
+    const RED = [255, 20, 40];
+    const BASE_Y = 126, AMP = 78, GAP = 22;
+    // one heartbeat: P wave, sharp QRS spike, rounded T wave
+    const bump = (p, c, w, a) => a * Math.exp(-((p - c) * (p - c)) / (2 * w * w));
+    function ecg(p) {
+      return bump(p, 0.10, 0.025, 0.14) + bump(p, 0.215, 0.009, -0.16) + bump(p, 0.24, 0.011, 1.0) +
+        bump(p, 0.265, 0.01, -0.34) + bump(p, 0.45, 0.045, 0.3);
+    }
+    const ys = new Float32Array(W).fill(BASE_Y);
+    const HEART = ['.XX...XX.', 'XXXX.XXXX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '...XXX...', '....X....'];
+    let head = 0, phase = 0.6, pulse = 0, clock = 0, beats = 0, jitter = 0;
+
+    function update(dt) {
+      clock += dt;
+      const pxPerSec = 70 + cfg.sweep * 2.2;
+      const steps = pxPerSec * dt;
+      const bps = cfg.bpm / 60;
+      // walk the head pixel by pixel so the trace never skips a column
+      let moved = 0;
+      while (moved < steps) {
+        const s = Math.min(1, steps - moved);
+        moved += s;
+        const before = phase;
+        phase += bps * (s / pxPerSec) * (1 + jitter);
+        if (before < 0.24 && phase >= 0.24) { pulse = 1; beats++; }
+        if (phase >= 1) { phase -= 1; jitter = (Math.random() - 0.5) * 0.12; }
+        head += s;
+        if (head >= W) head -= W;
+        ys[Math.floor(head) % W] = BASE_Y - ecg(phase) * AMP;
+      }
+      pulse = Math.max(0, pulse - dt * (1.6 + bps * 0.8));
+    }
+
+    function render() {
+      const lc = cfg.line, vk = cfg.vig / 100;
+      const danger = clamp((cfg.bpm - 60) / 120, 0, 1);
+      const beatK = pulse * pulse;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      // dark monitor glass with a faint tint
+      ctx.fillStyle = rgba(mix(mix(lc, RED, 0.5), [0, 0, 0], 0.9), 1);
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = rgba(lc, 0.07);
+      for (let x = 0; x < W; x += 20) ctx.fillRect(x, 0, 1, H);
+      for (let y = 0; y < H; y += 20) ctx.fillRect(0, y, W, 1);
+
+      // health bar (nearly empty, blinking) + pixel heart
+      const blink = 0.55 + 0.45 * Math.sin(clock * 6 + pulse * 3);
+      ctx.strokeStyle = rgba(lc, 0.45);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(64, 14, 244, 18);
+      ctx.fillStyle = rgba(RED, 0.25 + 0.75 * blink);
+      ctx.fillRect(67, 17, 34, 12);
+      const hs = 4 + beatK * 1.2, hx = 32 - 4.5 * hs, hy = 24 - 4 * hs;
+      ctx.fillStyle = rgba(mix(RED, [255, 255, 255], beatK * 0.4), 0.75 + beatK * 0.25);
+      for (let j = 0; j < HEART.length; j++) for (let i = 0; i < 9; i++) if (HEART[j][i] === 'X') ctx.fillRect(hx + i * hs, hy + j * hs, hs - 0.5, hs - 0.5);
+
+      // ECG trace, fading with age, with a blank gap just ahead of the head
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const hx0 = Math.floor(head);
+      for (const [lw, al] of [[11, 0.16], [4, 1]]) {
+        ctx.lineWidth = lw;
+        for (let c = 0; c < W; c += 4) {
+          const age = ((hx0 - c) % W + W) % W; // 0 at head
+          if (age > W - GAP || age < 1) continue;
+          const k = 1 - age / W;
+          ctx.strokeStyle = rgba(mix(lc, [255, 255, 255], k > 0.93 ? 0.5 : 0), al * (0.12 + 0.88 * k * k));
+          ctx.beginPath();
+          const e = Math.min(c + 4, W - 1);
+          ctx.moveTo(c, ys[c]);
+          for (let x = c + 1; x <= e; x++) {
+            const ax = ((hx0 - x) % W + W) % W;
+            if (ax < 1) break;
+            ctx.lineTo(x, ys[x]);
+          }
+          ctx.stroke();
+        }
+      }
+      // glowing write head
+      const yh = ys[hx0 % W];
+      let g = ctx.createRadialGradient(hx0, yh, 0, hx0, yh, 36);
+      g.addColorStop(0, rgba(mix(lc, [255, 255, 255], 0.6), 0.9));
+      g.addColorStop(1, rgba(lc, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(hx0 - 36, yh - 36, 72, 72);
+      // centre heartbeat bloom
+      if (beatK > 0.01) {
+        g = ctx.createRadialGradient(160, BASE_Y, 0, 160, BASE_Y, 170);
+        g.addColorStop(0, rgba(lc, 0.12 * beatK));
+        g.addColorStop(1, rgba(lc, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+
+      // red danger vignette, throbbing on every beat
+      const edge = vk * (0.3 + 0.25 * danger + 0.6 * beatK);
+      const inner = 70 - 40 * beatK * vk;
+      g = ctx.createRadialGradient(160, 100, Math.max(5, inner), 160, 100, 200);
+      g.addColorStop(0, rgba(RED, 0));
+      g.addColorStop(0.45, rgba(RED, edge * 0.45));
+      g.addColorStop(1, rgba(mix(RED, [255, 120, 120], beatK * 0.5), Math.min(1, edge * 1.15)));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

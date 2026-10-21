@@ -1,0 +1,237 @@
+<head>
+  <title>Maze Runner</title>
+  <meta description="A neon maze carves itself out block by block, then a blazing path races from start to finish before it all dissolves." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="maze,labyrinth,pathfinding,solver,puzzle,algorithm,grid,retro,game" />
+  <meta property="mazeSize" label="Maze Size" type="combobox" values="Small,Medium,Large" default="Medium" />
+  <meta property="wallColor" label="Wall Color" type="color" default="#1f8bff" />
+  <meta property="pathColor" label="Path Color" type="color" default="#ff2bd6" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const floorBright = (c, m) => { const mx = Math.max(c[0], c[1], c[2]); return mx >= m ? c : mx === 0 ? [m, m, m] : c.map((v) => v * m / mx); };
+
+    const SIZES = { Small: [7, 4], Medium: [11, 7], Large: [15, 9] };
+    const cfg = { size: 'Medium', wall: [31, 139, 255], path: [255, 43, 214], speed: 50 };
+    function readProps() {
+      const s = String(get(() => mazeSize, 'Medium'));
+      cfg.size = SIZES[s] ? s : 'Medium';
+      cfg.wall = floorBright(hexRgb(get(() => wallColor, '#1f8bff'), '#1f8bff'), 100);
+      cfg.path = floorBright(hexRgb(get(() => pathColor, '#ff2bd6'), '#ff2bd6'), 120);
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+    }
+    function onmazeSizeChanged() { readProps(); }
+    function onwallColorChanged() { readProps(); }
+    function onpathColorChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+
+    const M = { cw: 0, ch: 0, bw: 0, bh: 0, open: null, openT: null, seen: null, dist: null, onPath: null, rnd: null,
+      stack: [], visited: null, phase: 'fadein', t: 0, flood: 0, maxD: 0, path: [], head: 0, size: '', mazes: 0, acc: 0 };
+    let clock = 0;
+
+    function newMaze() {
+      const [cw, ch] = SIZES[cfg.size];
+      M.size = cfg.size; M.cw = cw; M.ch = ch; M.bw = cw * 2 + 1; M.bh = ch * 2 + 1;
+      const n = M.bw * M.bh;
+      M.open = new Uint8Array(n); M.openT = new Float32Array(n).fill(-99); M.dist = new Int32Array(n).fill(-1);
+      M.onPath = new Int32Array(n).fill(-1); M.rnd = new Float32Array(n);
+      for (let i = 0; i < n; i++) M.rnd[i] = Math.random();
+      M.visited = new Uint8Array(cw * ch);
+      const sx = (Math.random() * cw) | 0, sy = (Math.random() * ch) | 0;
+      M.visited[sy * cw + sx] = 1;
+      openB(sx * 2 + 1, sy * 2 + 1);
+      M.stack = [[sx, sy]];
+      M.phase = 'fadein'; M.t = 0; M.path = []; M.head = 0; M.flood = 0; M.maxD = 0; M.acc = 0;
+      M.mazes++;
+    }
+    function openB(x, y) { const i = y * M.bw + x; M.open[i] = 1; M.openT[i] = clock; }
+
+    function buildStep() {
+      if (!M.stack.length) return false;
+      const [x, y] = M.stack[M.stack.length - 1];
+      const opts = [];
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < M.cw && ny < M.ch && !M.visited[ny * M.cw + nx]) opts.push([nx, ny, dx, dy]);
+      }
+      if (!opts.length) { M.stack.pop(); return M.stack.length > 0; }
+      const [nx, ny, dx, dy] = opts[(Math.random() * opts.length) | 0];
+      M.visited[ny * M.cw + nx] = 1;
+      openB(x * 2 + 1 + dx, y * 2 + 1 + dy);
+      openB(nx * 2 + 1, ny * 2 + 1);
+      M.stack.push([nx, ny]);
+      return true;
+    }
+
+    function solve() {
+      const bw = M.bw, s = bw + 1, e = (M.bh - 2) * bw + (bw - 2);
+      M.dist.fill(-1);
+      const from = new Int32Array(bw * M.bh).fill(-1);
+      const q = [s]; M.dist[s] = 0;
+      for (let h = 0; h < q.length; h++) {
+        const c = q[h];
+        for (const d of [1, -1, bw, -bw]) {
+          const n = c + d;
+          if (n < 0 || n >= M.open.length || !M.open[n] || M.dist[n] >= 0) continue;
+          M.dist[n] = M.dist[c] + 1; from[n] = c; q.push(n);
+        }
+      }
+      M.maxD = 0;
+      for (let i = 0; i < M.dist.length; i++) M.maxD = Math.max(M.maxD, M.dist[i]);
+      M.path = [];
+      if (M.dist[e] >= 0) for (let c = e; c >= 0; c = from[c]) M.path.push(c);
+      M.path.reverse();
+      M.path.forEach((c, i) => { M.onPath[c] = i; });
+    }
+
+    function update(dt) {
+      const k = 0.35 + cfg.speed / 100 * 1.65;
+      M.t += dt;
+      if (M.size !== cfg.size && (M.phase === 'build' || M.phase === 'fadein')) newMaze();
+      switch (M.phase) {
+        case 'fadein':
+          if (M.t > 0.6) { M.phase = 'build'; M.t = 0; }
+          break;
+        case 'build': {
+          const cells = M.cw * M.ch;
+          M.acc += dt * k * cells * 2 / 6; // about six seconds at normal speed
+          let n = 0;
+          while (M.acc >= 1 && n < 200) {
+            M.acc -= 1; n++;
+            if (!buildStep()) { M.phase = 'pause'; M.t = 0; solve(); break; }
+          }
+          if (M.t > 60) { M.phase = 'pause'; M.t = 0; solve(); }
+          break;
+        }
+        case 'pause':
+          if (M.t > 0.5) { M.phase = M.path.length ? 'flood' : 'dissolve'; M.t = 0; }
+          break;
+        case 'flood':
+          M.flood += dt * k * Math.max(1, M.maxD) / 2.2;
+          if (M.flood >= M.maxD + 2) { M.phase = 'race'; M.t = 0; M.head = 0; }
+          break;
+        case 'race':
+          M.head += dt * k * Math.max(8, M.path.length / 2.0);
+          if (M.head >= M.path.length - 1) { M.head = M.path.length - 1; M.phase = 'hold'; M.t = 0; }
+          break;
+        case 'hold':
+          if (M.t > 1.8) { M.phase = 'dissolve'; M.t = 0; }
+          break;
+        case 'dissolve':
+          if (M.t > 1.6) newMaze();
+          break;
+      }
+    }
+
+    function render() {
+      const wc = cfg.wall, pc = cfg.path;
+      const bw = M.bw, bh = M.bh, sx = W / bw, sy = H / bh;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = rgba(mix(wc, [0, 0, 0], 0.9), 1);
+      ctx.fillRect(0, 0, W, H);
+      const fade = M.phase === 'fadein' ? clamp(M.t / 0.6, 0, 1) : 1;
+      const dis = M.phase === 'dissolve' ? M.t / 1.4 : -1;
+      const floorC = mix(wc, [0, 0, 0], 0.86);
+      const pathOn = M.phase === 'race' || M.phase === 'hold' || M.phase === 'dissolve';
+      for (let y = 0; y < bh; y++) {
+        const y0 = Math.floor(y * sy), y1 = Math.floor((y + 1) * sy);
+        for (let x = 0; x < bw; x++) {
+          const i = y * bw + x;
+          const x0 = Math.floor(x * sx), x1 = Math.floor((x + 1) * sx);
+          let a = fade;
+          if (dis >= 0) a *= clamp((M.rnd[i] - dis) * 4 + 1, 0, 1);
+          if (a <= 0) continue;
+          let col;
+          if (!M.open[i]) {
+            // walls shimmer with a slow diagonal wave
+            const wave = 0.72 + 0.28 * Math.sin((x + y) * 0.55 - clock * 2.2);
+            col = mix(mix(wc, [0, 0, 0], 0.45), wc, wave);
+          } else {
+            col = floorC;
+            const age = clock - M.openT[i];
+            if (age < 0.6) col = mix(col, mix(wc, [255, 255, 255], 0.6), 1 - age / 0.6);
+            const d = M.dist[i];
+            if ((M.phase === 'flood' || pathOn) && d >= 0 && d <= M.flood) {
+              const front = clamp(1 - (M.flood - d) / 6, 0, 1);
+              col = mix(col, mix(pc, [0, 0, 0], 0.62), 0.8);
+              if (M.phase === 'flood') col = mix(col, pc, front * 0.8);
+            }
+            const pi = M.onPath[i];
+            if (pathOn && pi >= 0 && pi <= M.head) {
+              let pcol = pc;
+              if (M.phase === 'hold') pcol = mix(pc, [255, 255, 255], 0.35 + 0.35 * Math.sin(pi * 0.5 - clock * 9));
+              else pcol = mix(pc, [255, 255, 255], clamp(1 - (M.head - pi) / 5, 0, 1) * 0.7);
+              col = pcol;
+            }
+          }
+          ctx.fillStyle = rgba(col, a);
+          ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+        }
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      const centre = (i) => [((i % bw) + 0.5) * sx, (Math.floor(i / bw) + 0.5) * sy];
+      const glow = (x, y, r, col, a) => {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+        ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      };
+      // builder head
+      if (M.phase === 'build' && M.stack.length) {
+        const [cx, cy] = M.stack[M.stack.length - 1];
+        const [x, y] = centre((cy * 2 + 1) * bw + cx * 2 + 1);
+        glow(x, y, 40, mix(wc, [255, 255, 255], 0.5), 0.75);
+      }
+      // start / goal beacons
+      if (M.phase !== 'build' && M.phase !== 'fadein' && M.phase !== 'dissolve') {
+        const pulse = 0.5 + 0.5 * Math.sin(clock * 6);
+        const [ax, ay] = centre(bw + 1), [ex, ey] = centre((bh - 2) * bw + bw - 2);
+        glow(ax, ay, 30, pc, 0.4 + 0.3 * pulse);
+        glow(ex, ey, 34, [255, 255, 255], 0.3 + 0.4 * pulse);
+      }
+      // racing head
+      if (M.phase === 'race' && M.path.length) {
+        const i0 = Math.floor(M.head), i1 = Math.min(M.path.length - 1, i0 + 1), f = M.head - i0;
+        const [x0, y0] = centre(M.path[i0]), [x1, y1] = centre(M.path[i1]);
+        const x = x0 + (x1 - x0) * f, y = y0 + (y1 - y0) * f;
+        glow(x, y, 46, pc, 0.75);
+        glow(x, y, 14, [255, 255, 255], 0.95);
+      }
+      if (M.phase === 'hold') {
+        const [ex, ey] = centre((bh - 2) * bw + bw - 2);
+        glow(ex, ey, 30 + M.t * 120, pc, 0.5 * (1 - M.t / 1.8));
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      clock += dt;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    newMaze();
+    requestAnimationFrame(frame);
+  </script>
+</body>

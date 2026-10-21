@@ -1,0 +1,130 @@
+<head>
+  <title>Fire</title>
+  <meta description="Roaring flames licking upward from the bottom of your setup." />
+  <meta publisher="Lumora" />
+  <meta category="Nature" />
+  <meta energy="lively" />
+  <meta palette="warm" />
+  <meta tags="nature,warm,fire" />
+  <meta property="palette" label="Palette" type="combobox" values="Fire,Ice,Toxic,Purple" default="Fire" />
+  <meta property="intensity" label="Intensity" tooltip="Flame height and heat" type="number" min="1" max="100" default="60" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    // [position, r, g, b] stops from cold (black) to hottest.
+    const PALETTES = {
+      Fire: [[0, 0, 0, 0], [0.2, 90, 0, 0], [0.45, 230, 40, 0], [0.65, 255, 130, 0], [0.85, 255, 210, 40], [1, 255, 255, 190]],
+      Ice: [[0, 0, 0, 0], [0.2, 0, 10, 70], [0.45, 0, 70, 200], [0.65, 0, 170, 255], [0.85, 120, 230, 255], [1, 230, 255, 255]],
+      Toxic: [[0, 0, 0, 0], [0.2, 0, 40, 0], [0.45, 30, 160, 0], [0.65, 120, 230, 0], [0.85, 210, 255, 40], [1, 245, 255, 190]],
+      Purple: [[0, 0, 0, 0], [0.2, 40, 0, 70], [0.45, 130, 0, 200], [0.65, 210, 40, 255], [0.85, 255, 120, 230], [1, 255, 220, 250]]
+    };
+    const LUT = new Uint8ClampedArray(256 * 3);
+    let builtFor = null;
+    function buildLut(name) {
+      const stops = PALETTES[name] || PALETTES.Fire;
+      for (let i = 0; i < 256; i++) {
+        const p = i / 255;
+        let k = 0;
+        while (k < stops.length - 2 && p > stops[k + 1][0]) k++;
+        const a = stops[k], b = stops[k + 1];
+        const f = clamp((p - a[0]) / (b[0] - a[0]), 0, 1);
+        LUT[i * 3] = a[1] + (b[1] - a[1]) * f;
+        LUT[i * 3 + 1] = a[2] + (b[2] - a[2]) * f;
+        LUT[i * 3 + 2] = a[3] + (b[3] - a[3]) * f;
+      }
+      builtFor = name;
+    }
+
+    const FW = 64, FH = 40;
+    const heat = new Float32Array(FW * (FH + 2));
+    const B = buffer(FW, FH);
+    const cfg = { palette: 'Fire', intensity: 60, speed: 50 };
+    let acc = 0, t = 0;
+
+    function readProps() {
+      cfg.palette = String(get(() => palette, 'Fire'));
+      cfg.intensity = clamp(num(get(() => intensity), 60), 1, 100);
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      if (builtFor !== cfg.palette) buildLut(cfg.palette);
+    }
+    function onpaletteChanged() { readProps(); }
+    function onintensityChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+
+    function simStep() {
+      t += 1 / 50;
+      const peak = 0.55 + cfg.intensity * 0.0045;
+      // seed the two hidden rows below the visible area
+      for (let r = FH; r < FH + 2; r++) {
+        for (let x = 0; x < FW; x++) {
+          const env = 0.72 + 0.28 * Math.sin(x * 0.35 + t * 1.7) * Math.sin(x * 0.13 - t * 0.9);
+          heat[r * FW + x] = peak * env * Math.sqrt(Math.random());
+        }
+      }
+      const cool = 0.046 - cfg.intensity * 0.0003;
+      for (let y = 0; y < FH; y++) {
+        const r1 = (y + 1) * FW, r2 = (y + 2) * FW, ro = y * FW;
+        for (let x = 0; x < FW; x++) {
+          const xl = x > 0 ? x - 1 : x, xr = x < FW - 1 ? x + 1 : x;
+          let v = (heat[r1 + xl] + heat[r1 + x] + heat[r1 + xr] + heat[r2 + x]) * 0.25;
+          v -= cool * (0.4 + Math.random() * 1.2);
+          heat[ro + x] = v > 0 ? v : 0;
+        }
+      }
+    }
+
+    function update(dt) {
+      const rate = 20 + cfg.speed * 0.6; // simulation steps per second
+      acc += dt * rate;
+      let n = 0;
+      while (acc >= 1 && n < 6) { simStep(); acc -= 1; n++; }
+      if (acc > 1) acc = 0;
+    }
+
+    function render() {
+      const d = B.d;
+      for (let i = 0, o = 0; i < FW * FH; i++, o += 4) {
+        const li = Math.min(255, heat[i] * 300) | 0;
+        d[o] = LUT[li * 3]; d[o + 1] = LUT[li * 3 + 1]; d[o + 2] = LUT[li * 3 + 2]; d[o + 3] = 255;
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    for (let i = 0; i < FH; i++) simStep(); // warm up so flames are visible immediately
+    requestAnimationFrame(frame);
+  </script>
+</body>

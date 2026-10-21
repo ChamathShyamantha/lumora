@@ -1,0 +1,162 @@
+<head>
+  <title>Screen Ambience</title>
+  <meta description="Extends your screen onto your lights by mirroring its colors in real time." />
+  <meta publisher="Lumora" />
+  <meta category="Screen Sync" />
+  <meta energy="lively" />
+  <meta palette="natural" />
+  <meta tags="screen,ambient,gaming" />
+  <meta property="mode" label="Mode" type="combobox" values="Full,Edges Only,Average Color" default="Full" />
+  <meta property="smoothing" label="Smoothing" type="number" min="0" max="100" default="40" />
+  <meta property="saturationBoost" label="Saturation Boost" type="number" min="-50" max="100" default="20" />
+  <meta property="brightness" label="Brightness" type="number" min="-50" max="50" default="0" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hue2(p, q, t) {
+      t -= Math.floor(t);
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 0.5) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    }
+    // h 0..1, s 0..1, l 0..1 -> writes 0..255 into out[o..o+2]
+    function hslTo(h, s, l, out, o) {
+      if (s <= 0) { out[o] = out[o + 1] = out[o + 2] = l * 255; return; }
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+      out[o] = hue2(p, q, h + 1 / 3) * 255;
+      out[o + 1] = hue2(p, q, h) * 255;
+      out[o + 2] = hue2(p, q, h - 1 / 3) * 255;
+    }
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+    function getZone() {
+      if (typeof engine === 'undefined' || !engine || !engine.zone || !engine.zone.active) return null;
+      const z = engine.zone;
+      if (!z.hue || !z.saturation || !z.lightness) return null;
+      return z;
+    }
+
+    const cfg = { mode: 'Full', smoothing: 40, satBoost: 20, bright: 0 };
+    let B = null, smooth = null, raw = null, zw = 0, zh = 0, primed = false, t = 0;
+
+    function ensure(w, h) {
+      if (B && w === zw && h === zh) return;
+      zw = w; zh = h;
+      B = buffer(w, h);
+      smooth = new Float32Array(w * h * 3);
+      raw = new Float32Array(3);
+      primed = false;
+    }
+    ensure(28, 20);
+
+    function readProps() {
+      cfg.mode = String(get(() => mode, 'Full'));
+      cfg.smoothing = clamp(num(get(() => smoothing), 40), 0, 100);
+      cfg.satBoost = clamp(num(get(() => saturationBoost), 20), -50, 100);
+      cfg.bright = clamp(num(get(() => brightness), 0), -50, 50);
+    }
+    function onmodeChanged() { readProps(); }
+    function onsmoothingChanged() { readProps(); }
+    function onsaturationBoostChanged() { readProps(); }
+    function onbrightnessChanged() { readProps(); }
+
+    function sample(z, dt) {
+      const w = Math.max(1, num(z.width, 28) | 0), h = Math.max(1, num(z.height, 20) | 0);
+      ensure(w, h);
+      const n = Math.min(w * h, z.hue.length, z.saturation.length, z.lightness.length);
+      const tau = Math.pow(cfg.smoothing / 100, 1.5) * 1.2; // seconds
+      const k = !primed || tau < 0.001 ? 1 : 1 - Math.exp(-dt / tau);
+      const sMul = 1 + cfg.satBoost / 100, bMul = 1 + cfg.bright / 100;
+      for (let i = 0; i < n; i++) {
+        const s = clamp(z.saturation[i] / 100 * sMul, 0, 1);
+        const l = clamp(z.lightness[i] / 100, 0, 1);
+        hslTo(z.hue[i] / 360, s, l, raw, 0);
+        const o = i * 3;
+        smooth[o] += (clamp(raw[0] * bMul, 0, 255) - smooth[o]) * k;
+        smooth[o + 1] += (clamp(raw[1] * bMul, 0, 255) - smooth[o + 1]) * k;
+        smooth[o + 2] += (clamp(raw[2] * bMul, 0, 255) - smooth[o + 2]) * k;
+      }
+      primed = true;
+    }
+
+    function renderZones() {
+      const d = B.d, edges = cfg.mode === 'Edges Only';
+      let o = 0, p = 0;
+      for (let y = 0; y < zh; y++) {
+        for (let x = 0; x < zw; x++, o += 4, p += 3) {
+          let m = 1;
+          if (edges) {
+            const e = Math.min(x, y, zw - 1 - x, zh - 1 - y);
+            m = e < 2 ? 1 : e < 3 ? 0.45 : 0;
+          }
+          d[o] = smooth[p] * m; d[o + 1] = smooth[p + 1] * m; d[o + 2] = smooth[p + 2] * m; d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    function renderAverage() {
+      let r = 0, g = 0, b = 0;
+      const n = zw * zh;
+      for (let i = 0; i < n * 3; i += 3) { r += smooth[i]; g += smooth[i + 1]; b += smooth[i + 2]; }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgb(' + Math.round(r / n) + ',' + Math.round(g / n) + ',' + Math.round(b / n) + ')';
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Shown while screen capture is unavailable: a dim, slowly drifting gradient.
+    function renderIdle() {
+      const d = B.d;
+      let o = 0;
+      for (let y = 0; y < zh; y++) {
+        for (let x = 0; x < zw; x++, o += 4) {
+          hslTo(t * 0.015 + x / zw * 0.25 + y / zh * 0.08, 0.9, 0.07 + 0.03 * Math.sin(t * 0.5 + x * 0.2), d, o);
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    function update(dt) {
+      t += dt;
+      const z = getZone();
+      if (!z) { primed = false; renderIdle(); return; }
+      sample(z, dt);
+      if (cfg.mode === 'Average Color') renderAverage();
+      else renderZones();
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

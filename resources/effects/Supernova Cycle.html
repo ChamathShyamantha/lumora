@@ -1,0 +1,217 @@
+<head>
+  <title>Supernova Cycle</title>
+  <meta description="A star swells into a burning giant, collapses in on itself and detonates in a blinding shockwave of glowing debris, before a new star kindles from the ashes." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="intense" />
+  <meta palette="warm" />
+  <meta tags="space,supernova,star,explosion,shockwave,cosmic,burst,cycle,dramatic" />
+  <meta property="cycleLength" label="Cycle Length" type="number" min="8" max="40" default="16" tooltip="Seconds for one full life of the star" />
+  <meta property="burstColor" label="Burst Color" type="color" default="#ff6424" />
+  <meta property="brightness" label="Brightness" type="number" min="10" max="100" default="85" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, LW = 80, LH = 50, S = W / LW, CX = 160, CY = 100;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const sstep = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+    const toRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const css = (c, a) => 'rgba(' + (Math.min(255, Math.max(0, c[0])) | 0) + ',' + (Math.min(255, Math.max(0, c[1])) | 0) + ',' + (Math.min(255, Math.max(0, c[2])) | 0) + ',' + clamp01(a).toFixed(3) + ')';
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+
+    let seed = 6113;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const PERM = new Uint16Array(512), VAL = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { PERM[i] = i; VAL[i] = rand(); }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const s = PERM[i]; PERM[i] = PERM[j]; PERM[j] = s; }
+    for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let fx = x - xi, fy = y - yi;
+      const X = xi & 255, Y = yi & 255;
+      const a = VAL[PERM[PERM[X] + Y]], b = VAL[PERM[PERM[X + 1] + Y]];
+      const c = VAL[PERM[PERM[X] + Y + 1]], d = VAL[PERM[PERM[X + 1] + Y + 1]];
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+    const fbm = (x, y) => noise(x, y) * 0.55 + noise(x * 2.2 + 7.1, y * 2.2 + 3.3) * 0.3 + noise(x * 4.6 + 1.9, y * 4.6 + 8.2) * 0.15;
+
+    const cfg = { cycle: 16, burst: [255, 100, 36], bright: 0.85 };
+    function readProps() {
+      cfg.cycle = numIn(read(() => cycleLength, 16), 16, 8, 40);
+      cfg.burst = toRgb(read(() => burstColor, '#ff6424'), 'ff6424');
+      cfg.bright = numIn(read(() => brightness, 85), 85, 10, 100) / 100;
+    }
+    function oncycleLengthChanged() { readProps(); }
+    function onburstColorChanged() { readProps(); }
+    function onbrightnessChanged() { readProps(); }
+
+    const buf = document.createElement('canvas');
+    buf.width = LW; buf.height = LH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(LW, LH);
+    const px = img.data;
+
+    // life stages (fractions of the cycle)
+    const BORN = 0.1, GIANT = 0.55, CRUNCH = 0.6, BANG = 0.61;
+    const YOUNG = [255, 236, 190], OLD = [255, 84, 18];
+
+    let phase = 0.04, clock = 0, last = null;
+    let rotA = 0, nebSeed = 0, lastRemnant = 0;
+    const debris = [];
+
+    function starState(p) {
+      // returns radius, brightness and colour of the star itself
+      if (p < BORN) { const k = sstep(0, BORN, p); return { r: 3 + 11 * k, b: 0.25 + 0.6 * k, c: YOUNG }; }
+      if (p < GIANT) {
+        const k = (p - BORN) / (GIANT - BORN);
+        const throb = 1 + Math.sin(clock * (2 + k * 9)) * 0.06 * k * k;
+        return { r: (14 + 34 * k * k) * throb, b: 0.85 + 0.35 * k, c: mix(YOUNG, OLD, sstep(0.1, 0.9, k)) };
+      }
+      if (p < BANG) {
+        const k = (p - GIANT) / (BANG - GIANT);
+        const e = k * k * k;
+        return { r: 48 * (1 - e) + 3 * e, b: 1.2 + 0.8 * k, c: mix(OLD, [255, 255, 255], k) };
+      }
+      const k = sstep(BANG, BANG + 0.08, p);
+      return { r: 3 + 4 * (1 - k), b: 2 * (1 - k) + 0.25, c: [255, 245, 235] };
+    }
+
+    function burst() {
+      nebSeed = Math.random() * 50;
+      rotA = Math.random() * 6.28;
+      debris.length = 0;
+      for (let i = 0; i < 90; i++) {
+        const a = Math.random() * Math.PI * 2, v = 90 + Math.random() * 260;
+        debris.push({ x: CX, y: CY, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.85, life: 2.5 + Math.random() * 3, age: 0, r: 5 + Math.random() * 9, hot: Math.random() });
+      }
+    }
+
+    function renderNebula(p) {
+      // expanding shock shell + glowing remnant filaments, low resolution
+      const B = cfg.burst, k = cfg.bright;
+      let shockR = -1, shellAmt = 0, fill = 0;
+      if (p >= BANG) {
+        const s = (p - BANG) / (1 - BANG);
+        shockR = 10 + 270 * (1 - Math.pow(1 - s, 2.2));
+        shellAmt = 1 - sstep(0.45, 1, s);
+        fill = Math.max(0.3, (1 - sstep(0.3, 1, s)) * 0.85 + 0.35 * (1 - s));
+        lastRemnant = fill;
+      } else {
+        // previous remnant lingers faintly while the next star forms
+        fill = lastRemnant * (1 - sstep(0, BORN * 2.2, p));
+      }
+      // while a new star forms, the old cloud is drawn back in toward it
+      const pull = 230 - 190 * sstep(0, BORN * 2.2, p);
+      const thick = 16 + Math.max(0, shockR) * 0.12;
+      const hot = mix([255, 220, 150], B, 0.35);
+      const st = starState(p);
+      const starGlow = st.b * (p < BANG ? 1 : 0.4);
+      let o = 0;
+      for (let j = 0; j < LH; j++) {
+        const y = (j + 0.5) * S - CY;
+        for (let i = 0; i < LW; i++) {
+          const x = (i + 0.5) * S - CX;
+          const rho = Math.sqrt(x * x + y * y * 1.25);
+          const ca = Math.cos(rotA), sa = Math.sin(rotA);
+          const fil = fbm((x * ca - y * sa) * 0.028 + nebSeed, (x * sa + y * ca) * 0.028 + 3.7 + clock * 0.02);
+          let v = 0, hv = 0;
+          if (shockR > 0) {
+            const q = (rho - shockR) / thick;
+            const shell = Math.exp(-q * q) * shellAmt;
+            const inside = sstep(shockR + thick * 0.5, shockR * 0.2, rho);
+            v = shell * (0.55 + 0.9 * fil) + inside * fill * (0.2 + 1.4 * fil * fil);
+            hv = shell * 0.55;
+          } else if (fill > 0) {
+            v = fill * (0.2 + 1.4 * fil * fil) * sstep(pull, pull * 0.15, rho);
+          }
+          // the star's own light washing over the surroundings
+          const halo = starGlow * Math.exp(-rho / (40 + st.r * 1.6)) * 0.55;
+          const sc = mix(st.c, OLD, 0.45);
+          let r = (B[0] * v + hot[0] * hv + sc[0] * halo) * k;
+          let g = (B[1] * v + hot[1] * hv + sc[1] * halo) * k;
+          let b = (B[2] * v + hot[2] * hv + sc[2] * halo) * k;
+          // a little dim reddish dust everywhere so the room is never dead black
+          px[o] = r + 16; px[o + 1] = g + 5; px[o + 2] = b + 6; px[o + 3] = 255;
+          o += 4;
+        }
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+    }
+
+    function renderStar(p) {
+      const st = starState(p);
+      const k = cfg.bright;
+      ctx.globalCompositeOperation = 'lighter';
+      const R = st.r * 2.6 + 20;
+      const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, R);
+      g.addColorStop(0, css(mix([255, 255, 255], st.c, 0.4), Math.min(1, st.b) * k));
+      g.addColorStop(clamp01(st.r / R * 0.75), css(st.c, Math.min(1, st.b * 0.95) * k));
+      g.addColorStop(clamp01(st.r / R * 1.05), css(st.c, 0.35 * Math.min(1, st.b) * k));
+      g.addColorStop(1, css(st.c, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(CX - R, CY - R, R * 2, R * 2);
+      // debris
+      // debris: hot sparks streaking outward
+      ctx.lineCap = 'round';
+      for (const d of debris) {
+        const a = (1 - d.age / d.life) * k;
+        if (a <= 0) continue;
+        const c = mix([255, 236, 190], cfg.burst, Math.min(1, d.age / 1.5 + d.hot * 0.3));
+        const tx = d.x - d.vx * 0.09, ty = d.y - d.vy * 0.09;
+        ctx.strokeStyle = css(c, a * 0.22);
+        ctx.lineWidth = 9;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(d.x, d.y); ctx.stroke();
+        ctx.strokeStyle = css(mix(c, [255, 255, 255], 0.3), a * 0.8);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(d.x, d.y); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // the detonation flash
+      if (p >= CRUNCH) {
+        const f = p < BANG ? sstep(CRUNCH, BANG, p) : Math.exp(-(p - BANG) * cfg.cycle * 2.2);
+        if (f > 0.004) {
+          ctx.fillStyle = css(mix([255, 255, 255], cfg.burst, 0.25 + 0.5 * (1 - f)), f * (0.35 + 0.65 * k));
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+    }
+
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      clock += dt;
+      const prev = phase;
+      phase += dt / cfg.cycle;
+      if (phase >= 1) phase -= 1;
+      if (prev < BANG && phase >= BANG) burst();
+      for (let i = debris.length - 1; i >= 0; i--) {
+        const d = debris[i];
+        d.age += dt;
+        const drag = Math.exp(-dt * 0.9);
+        d.vx *= drag; d.vy *= drag;
+        d.x += d.vx * dt; d.y += d.vy * dt;
+        if (d.age >= d.life) debris.splice(i, 1);
+      }
+      renderNebula(phase);
+      renderStar(phase);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,156 @@
+<head>
+  <title>Beat Sequencer</title>
+  <meta description="A sixteen-step drum-machine chase that lands one glowing pad on every beat." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="audio,music,beat,sequencer,step,chase,drum machine,party,dj,bpm" />
+  <meta property="bpm" label="BPM (no music)" type="number" min="40" max="200" default="120" tooltip="Steps per minute when no beat is detected" />
+  <meta property="pattern" label="Colour Pattern" type="combobox" values="Neon,Rainbow,Sunset,Ice,Accent" default="Neon" />
+  <meta property="trail" label="Step Trail" type="number" min="0" max="100" default="55" tooltip="How long each pad keeps glowing after the playhead leaves" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, STEPS = 16, CW = W / STEPS;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      const o = i === 0 ? [v, t, p] : i === 1 ? [q, v, p] : i === 2 ? [p, v, t] : i === 3 ? [p, q, v] : i === 4 ? [t, p, v] : [v, p, q];
+      return [o[0] * 255, o[1] * 255, o[2] * 255];
+    }
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+
+    const cfg = { bpm: 120, pattern: 'Neon', trail: 55 };
+    const glow = new Float32Array(STEPS);   // per-pad brightness 0..1
+    const hit = new Float32Array(STEPS);    // fast white-hot attack on the freshly landed pad
+    let colors = [];
+    let step = STEPS - 1, acc = 0, lastBeatCount = null, sinceBeat = 99, bassS = 0, wash = 0;
+
+    function buildColors() {
+      const out = [];
+      const neon = [[255, 0, 170], [0, 225, 255], [140, 50, 255], [40, 255, 120]];
+      const ice = [[0, 120, 255], [0, 220, 255], [120, 90, 255], [170, 240, 255]];
+      for (let i = 0; i < STEPS; i++) {
+        switch (cfg.pattern) {
+          case 'Rainbow': out.push(hsv(i / STEPS, 1, 1)); break;
+          case 'Sunset': { const k = Math.sin(i / (STEPS - 1) * Math.PI); out.push(hsv(0.9 + k * 0.22, 1, 1)); break; }
+          case 'Ice': out.push(ice[(i >> 2) % 4]); break;
+          case 'Accent': out.push(i % 4 === 0 ? [255, 30, 110] : [20, 70, 255]); break;
+          default: out.push(neon[(i >> 2) % 4]);
+        }
+      }
+      colors = out;
+    }
+    function readProps() {
+      cfg.bpm = clamp(num(get(() => bpm), 120), 20, 300);
+      const p = String(get(() => pattern, 'Neon'));
+      cfg.trail = clamp(num(get(() => trail), 55), 0, 100);
+      if (p !== cfg.pattern || !colors.length) { cfg.pattern = p; buildColors(); }
+    }
+    function onbpmChanged() { readProps(); }
+    function onpatternChanged() { readProps(); }
+    function ontrailChanged() { readProps(); }
+
+    function advance(strength) {
+      step = (step + 1) % STEPS;
+      glow[step] = 1;
+      hit[step] = clamp(strength, 0.4, 1);
+    }
+
+    function update(dt) {
+      const a = getAudio();
+      let beat = false, bass = 0;
+      if (a) {
+        bass = clamp(num(a.bass, 0), 0, 1);
+        const bc = num(a.beatCount, 0);
+        beat = a.beat === true || (lastBeatCount !== null && bc !== lastBeatCount);
+        lastBeatCount = bc;
+      } else lastBeatCount = null;
+      sinceBeat = beat ? 0 : sinceBeat + dt;
+      bassS += (bass - bassS) * (1 - Math.exp(-dt * 12));
+      if (beat) { advance(0.6 + bass * 0.4); acc = 0; wash = 0.5 + bass * 0.5; }
+      else if (sinceBeat > 2.5) {
+        acc += dt * cfg.bpm / 60;
+        if (acc >= 1) { acc -= Math.floor(acc); advance(step % 4 === 3 ? 1 : 0.75); wash = 0.45; }
+      }
+      const tau = 0.06 + Math.pow(cfg.trail / 100, 1.5) * 1.6;
+      const k = Math.exp(-dt / tau), kh = Math.exp(-dt / 0.12);
+      for (let i = 0; i < STEPS; i++) {
+        if (i !== step) glow[i] *= k; else glow[i] = Math.max(glow[i] * Math.exp(-dt / 1.2), 0.55);
+        hit[i] *= kh;
+      }
+      wash *= Math.exp(-dt / 0.25);
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      const musical = sinceBeat < 2.5;
+      // faint "unlit pad" grid so the pattern is always readable
+      for (let i = 0; i < STEPS; i++) {
+        const c = colors[i];
+        ctx.fillStyle = rgba(c, i % 4 === 0 ? 0.13 : 0.08);
+        ctx.fillRect(i * CW + 1.5, 6, CW - 3, H - 12);
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      // soft wash of the active colour on each step
+      const ac = colors[step];
+      if (wash > 0.01) { ctx.fillStyle = rgba(ac, wash * 0.16); ctx.fillRect(0, 0, W, H); }
+      for (let i = 0; i < STEPS; i++) {
+        const e = glow[i];
+        if (e < 0.01) continue;
+        const c = colors[i];
+        const x = i * CW + CW / 2;
+        // pad height: full when idle, bounces with bass when music drives it
+        const hh = musical && i === step ? (H / 2 - 6) * (0.6 + 0.4 * bassS) : H / 2 - 6;
+        const top = H / 2 - hh, bot = H / 2 + hh;
+        const g = ctx.createLinearGradient(0, top, 0, bot);
+        g.addColorStop(0, rgba(c, e * 0.55));
+        g.addColorStop(0.5, rgba(c, e));
+        g.addColorStop(1, rgba(c, e * 0.55));
+        ctx.fillStyle = g;
+        ctx.fillRect(i * CW + 1.5, top, CW - 3, bot - top);
+        // halo spilling onto neighbouring pads
+        const sp = CW * 2.2;
+        const hg = ctx.createLinearGradient(x - sp, 0, x + sp, 0);
+        hg.addColorStop(0, rgba(c, 0));
+        hg.addColorStop(0.5, rgba(c, e * 0.35));
+        hg.addColorStop(1, rgba(c, 0));
+        ctx.fillStyle = hg;
+        ctx.fillRect(x - sp, 6, sp * 2, H - 12);
+        if (hit[i] > 0.02) {
+          ctx.fillStyle = rgba([255, 255, 255], hit[i] * 0.5);
+          ctx.fillRect(i * CW + 3, top + 8, CW - 6, bot - top - 16);
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,222 @@
+<head>
+  <title>Ringed Planet</title>
+  <meta description="A pastel gas giant turns slowly inside its tilted rings, banded clouds drifting past a soft terminator while little moons glide around it." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="calm" />
+  <meta palette="pastel" />
+  <meta tags="space,planet,saturn,rings,moons,gas giant,pastel,relaxing,orbit" />
+  <meta property="planetColors" label="Planet Colours" type="combobox" values="Cotton Candy,Peach Sorbet,Mint Lagoon,Lavender Dusk" default="Cotton Candy" />
+  <meta property="ringTilt" label="Ring Tilt" type="number" min="0" max="100" default="40" tooltip="Low shows the rings nearly edge-on, high looks down onto them" />
+  <meta property="rotationSpeed" label="Rotation Speed" type="number" min="1" max="100" default="30" tooltip="How fast the planet turns and the moons orbit" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, LW = 160, LH = 100, S = W / LW, CX = 160, CY = 102, R = 54;
+    const ROLL = -0.3, CR = Math.cos(ROLL), SR = Math.sin(ROLL);
+    const RING_IN = 1.28, RING_OUT = 2.3;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const sstep = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+
+    let seed = 2087;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const PERM = new Uint16Array(512), VAL = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { PERM[i] = i; VAL[i] = rand(); }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const s = PERM[i]; PERM[i] = PERM[j]; PERM[j] = s; }
+    for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let fx = x - xi, fy = y - yi;
+      const X = xi & 255, Y = yi & 255;
+      const a = VAL[PERM[PERM[X] + Y]], b = VAL[PERM[PERM[X + 1] + Y]];
+      const c = VAL[PERM[PERM[X] + Y + 1]], d = VAL[PERM[PERM[X + 1] + Y + 1]];
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+
+    // band colours (cyclic) + ring tint + sky tint
+    const PALETTES = {
+      'Cotton Candy': { bands: [[255, 176, 214], [196, 172, 255], [158, 214, 255], [255, 222, 238]], ring: [255, 226, 240], sky: [46, 26, 70] },
+      'Peach Sorbet': { bands: [[255, 196, 150], [255, 160, 168], [255, 228, 176], [244, 184, 206]], ring: [255, 236, 210], sky: [64, 30, 44] },
+      'Mint Lagoon': { bands: [[160, 240, 210], [150, 206, 255], [214, 250, 196], [180, 226, 240]], ring: [220, 255, 240], sky: [18, 44, 60] },
+      'Lavender Dusk': { bands: [[196, 176, 255], [255, 186, 228], [164, 168, 244], [232, 210, 255]], ring: [236, 224, 255], sky: [40, 26, 72] }
+    };
+    const cfg = { pal: PALETTES['Cotton Candy'], tilt: 40, speed: 30 };
+    function readProps() {
+      const p = String(read(() => planetColors, 'Cotton Candy'));
+      cfg.pal = PALETTES[p] || PALETTES['Cotton Candy'];
+      cfg.tilt = numIn(read(() => ringTilt, 40), 40, 0, 100);
+      cfg.speed = numIn(read(() => rotationSpeed, 30), 30, 0, 100);
+    }
+    function onplanetColorsChanged() { readProps(); }
+    function onringTiltChanged() { readProps(); }
+    function onrotationSpeedChanged() { readProps(); }
+
+    const buf = document.createElement('canvas');
+    buf.width = LW; buf.height = LH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(LW, LH);
+    const px = img.data;
+
+    // light comes from the upper left, slightly in front
+    const LX = -0.62, LY = -0.42, LZ = 0.66;
+    const LN = Math.hypot(LX, LY, LZ), Lx = LX / LN, Ly = LY / LN, Lz = LZ / LN;
+
+    function ringDensity(x) {
+      if (x < RING_IN || x > RING_OUT) return 0;
+      let d = sstep(RING_IN, RING_IN + 0.08, x) * (1 - sstep(RING_OUT - 0.12, RING_OUT, x));
+      d *= 0.62 + 0.22 * Math.sin(x * 37) + 0.16 * noise(x * 24, 3.7);
+      d *= 1 - 0.85 * (sstep(1.78, 1.81, x) - sstep(1.88, 1.91, x));
+      return clamp01(d);
+    }
+    function bandColor(f, out) {
+      const B = cfg.pal.bands;
+      f = (f % 4 + 4) % 4;
+      const i = Math.floor(f), k = f - i, s = k * k * (3 - 2 * k);
+      const a = B[i], b = B[(i + 1) % 4];
+      out[0] = a[0] + (b[0] - a[0]) * s; out[1] = a[1] + (b[1] - a[1]) * s; out[2] = a[2] + (b[2] - a[2]) * s;
+    }
+
+    let spin = 0, clock = 0, elev = 0.3;
+    const tmp = [0, 0, 0];
+
+    function renderScene() {
+      const si = Math.sin(elev), ci = Math.cos(elev);
+      // ring plane basis (camera space: x right, y down, z toward viewer)
+      const e2y = si, e2z = ci, ny = -ci, nz = si;
+      const Ln = Ly * ny + Lz * nz;
+      const sky = cfg.pal.sky, ringC = cfg.pal.ring;
+      let o = 0;
+      for (let j = 0; j < LH; j++) {
+        for (let i = 0; i < LW; i++) {
+          const sx = (i + 0.5) * S - CX, sy = (j + 0.5) * S - CY;
+          const u = (sx * CR + sy * SR) / R, v = (-sx * SR + sy * CR) / R;
+          const d2 = u * u + v * v, d = Math.sqrt(d2);
+          // soft pastel sky with an atmospheric halo around the planet
+          const halo = d > 1 ? Math.exp(-(d - 1) * 5) * 0.55 + Math.exp(-(d - 1) * 1.2) * 0.25 : 0;
+          const glow = 0.55 + 0.45 * noise(i * 0.05 + clock * 0.02, j * 0.05);
+          let r = sky[0] * glow + halo * cfg.pal.bands[0][0] * 0.6;
+          let g = sky[1] * glow + halo * cfg.pal.bands[0][1] * 0.6;
+          let b = sky[2] * glow + halo * cfg.pal.bands[0][2] * 0.6;
+          // ring sample along this pixel
+          const rb = v / Math.max(si, 0.02);
+          const rr = Math.sqrt(u * u + rb * rb);
+          const zr = rb * ci;
+          let ringA = ringDensity(rr);
+          let ringLit = 1;
+          if (ringA > 0) {
+            // planet shadow falling across the rings
+            const qx = u, qy = rb * e2y, qz = rb * e2z;
+            const qL = qx * Lx + qy * Ly + qz * Lz;
+            if (qL < 0) {
+              const dist = Math.sqrt(Math.max(0, qx * qx + qy * qy + qz * qz - qL * qL));
+              ringLit = 0.25 + 0.75 * sstep(0.9, 1.06, dist);
+            }
+          }
+          if (d < 1.02) {
+            const zs = Math.sqrt(Math.max(0, 1 - d2));
+            // planet surface normal and latitude/longitude in the ring frame
+            const Nx = u, Ny = v, Nz = zs;
+            const lat = Math.asin(Math.max(-1, Math.min(1, Ny * ny + Nz * nz)));
+            const lon = Math.atan2(Ny * e2y + Nz * e2z, Nx) + spin;
+            const cl = Math.cos(lon), sl = Math.sin(lon);
+            const turb = noise(1.7 * cl + lat * 4 + 11, 1.7 * sl + lat * 2.5) * 0.6 + noise(3.4 * cl + 5, 3.4 * sl + lat * 7) * 0.3;
+            bandColor(lat * 4.2 + turb * 1.1, tmp);
+            // a big pale storm oval that rides the rotation
+            const so = Math.exp(-((lat + 0.42) * (lat + 0.42)) * 40 - (1 - Math.cos(lon - 1.2)) * 9);
+            let pr = tmp[0] + (255 - tmp[0]) * so * 0.6, pg = tmp[1] + (240 - tmp[1]) * so * 0.6, pb = tmp[2] + (250 - tmp[2]) * so * 0.6;
+            const lam = Nx * Lx + Ny * Ly + Nz * Lz;
+            let lit = 0.2 + 0.8 * sstep(-0.25, 0.75, lam);
+            // ring shadow on the cloud tops
+            const pn = Ny * ny + Nz * nz;
+            if (Math.abs(Ln) > 0.01) {
+              const t = -pn / Ln;
+              if (t > 0) {
+                const hx = Nx + t * Lx, hy = Ny + t * Ly, hz = Nz + t * Lz;
+                const hr = Math.sqrt(hx * hx + Math.pow(hy * e2y + hz * e2z, 2));
+                lit *= 1 - 0.45 * ringDensity(hr);
+              }
+            }
+            const rim = Math.pow(1 - zs, 3) * 0.35;
+            pr = pr * lit + rim * 255; pg = pg * lit + rim * 230; pb = pb * lit + rim * 255;
+            const edge = 1 - sstep(0.985, 1.02, d);
+            r += (pr - r) * edge; g += (pg - g) * edge; b += (pb - b) * edge;
+            if (zr < zs) ringA = 0; // far side of the ring is hidden behind the globe
+          }
+          if (ringA > 0) {
+            const k = ringA * 0.85;
+            const tone = 0.75 + 0.25 * Math.sin(rr * 9);
+            r += (ringC[0] * tone * ringLit - r) * k;
+            g += (ringC[1] * tone * ringLit - g) * k;
+            b += (ringC[2] * tone * ringLit - b) * k;
+          }
+          px[o] = r; px[o + 1] = g; px[o + 2] = b; px[o + 3] = 255;
+          o += 4;
+        }
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+    }
+
+    const moons = [
+      { orbit: 2.75, size: 7, phase: 0.8, rate: 0.55, incl: 0.06, col: [255, 236, 214] },
+      { orbit: 3.2, size: 5, phase: 3.6, rate: 0.38, incl: -0.1, col: [214, 230, 255] }
+    ];
+    function drawMoons() {
+      const si = Math.sin(elev), ci = Math.cos(elev);
+      for (const m of moons) {
+        const a = m.phase + clock * m.rate * (0.15 + cfg.speed * 0.018);
+        const ra = Math.cos(a) * m.orbit, rb = Math.sin(a) * m.orbit;
+        // position in camera space (slight orbital inclination)
+        const x = ra, y = rb * si + m.incl * Math.cos(a) * ci, z = rb * ci;
+        const u = x, v = y;
+        if (z < 0 && u * u + v * v < 1.02) continue; // hidden behind the planet
+        const sx = CX + (u * CR - v * SR) * R, sy = CY + (u * SR + v * CR) * R;
+        const glowR = m.size * 4.5;
+        ctx.globalCompositeOperation = 'lighter';
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+        g.addColorStop(0, 'rgba(' + m.col[0] + ',' + m.col[1] + ',' + m.col[2] + ',0.55)');
+        g.addColorStop(1, 'rgba(' + m.col[0] + ',' + m.col[1] + ',' + m.col[2] + ',0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(sx - glowR, sy - glowR, glowR * 2, glowR * 2);
+        ctx.globalCompositeOperation = 'source-over';
+        const b = ctx.createRadialGradient(sx - m.size * 0.4, sy - m.size * 0.4, 0, sx, sy, m.size);
+        b.addColorStop(0, 'rgb(255,255,255)');
+        b.addColorStop(0.6, 'rgb(' + m.col[0] + ',' + m.col[1] + ',' + m.col[2] + ')');
+        b.addColorStop(1, 'rgb(' + (m.col[0] * 0.45 | 0) + ',' + (m.col[1] * 0.45 | 0) + ',' + (m.col[2] * 0.5 | 0) + ')');
+        ctx.fillStyle = b;
+        ctx.beginPath(); ctx.arc(sx, sy, m.size, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      clock += dt;
+      spin += dt * (0.03 + cfg.speed * 0.006);
+      if (spin > 6283.1853) spin -= 6283.1853;
+      const target = (7 + cfg.tilt * 0.38) * Math.PI / 180;
+      elev += (target - elev) * Math.min(1, dt * 3);
+      renderScene();
+      drawMoons();
+    }
+    readProps();
+    elev = (7 + cfg.tilt * 0.38) * Math.PI / 180;
+    requestAnimationFrame(frame);
+  </script>
+</body>

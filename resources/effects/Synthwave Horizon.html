@@ -1,0 +1,220 @@
+<head>
+  <title>Synthwave Horizon</title>
+  <meta description="An endless neon grid rolls toward you beneath a striped retro sun and a glowing dusk sky." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="synthwave,outrun,retrowave,80s,grid,sunset,vaporwave,neon,retro" />
+  <meta property="gridColor" label="Grid Color" type="color" default="#ff2bd6" />
+  <meta property="sunColors" label="Sun Colors" type="combobox" values="Sunset,Vapor,Toxic,Ice,Inferno" default="Sunset" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="40" />
+  <meta property="glow" label="Grid Glow" type="number" min="0" max="100" default="60" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, HY = 112;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const lift = (c, m) => [Math.max(c[0], m), Math.max(c[1], m), Math.max(c[2], m)];
+
+    // sun top, sun bottom, sky top, sky middle, horizon haze
+    const SUNS = {
+      Sunset: ['#ffe94a', '#ff2a7a', '#1c0640', '#4c0d66', '#ff4f8b'],
+      Vapor: ['#8afcff', '#ff6fd0', '#120a44', '#3d1c86', '#b967ff'],
+      Toxic: ['#eaff4a', '#14ff8a', '#021f1a', '#04423a', '#00ffa2'],
+      Ice: ['#ffffff', '#36c8ff', '#03123a', '#0d2f66', '#4fb3ff'],
+      Inferno: ['#fff27a', '#ff3600', '#260300', '#5a1000', '#ff6a1f']
+    };
+    const cfg = { grid: [255, 43, 214], sun: SUNS.Sunset.map((h) => hexRgb(h, h)), speed: 40, glow: 60 };
+
+    function readProps() {
+      cfg.grid = lift(hexRgb(get(() => gridColor, '#ff2bd6'), '#ff2bd6'), 24);
+      const s = SUNS[String(get(() => sunColors, 'Sunset'))] || SUNS.Sunset;
+      cfg.sun = s.map((h) => hexRgb(h, h));
+      cfg.speed = clamp(num(get(() => speed), 40), 0, 100);
+      cfg.glow = clamp(num(get(() => glow), 60), 0, 100);
+    }
+    function ongridColorChanged() { readProps(); }
+    function onsunColorsChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function onglowChanged() { readProps(); }
+
+    // offscreen sun so the stripes can be cut out with destination-out
+    const SR = 56;
+    const sunCv = document.createElement('canvas');
+    sunCv.width = SR * 2 + 4; sunCv.height = SR * 2 + 4;
+    const sctx = sunCv.getContext('2d');
+
+    // fixed low mountain silhouettes at the sides (seeded so they never jump)
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const ridge = [];
+    for (let x = -10; x <= W + 10; x += 14) {
+      const side = Math.abs(x - 160) / 160; // 0 centre .. 1 edge
+      const hgt = side < 0.3 ? 0 : (side - 0.3) * 44 * (0.6 + rnd() * 0.7);
+      ridge.push([x, HY - hgt]);
+    }
+    const stars = [];
+    for (let i = 0; i < 26; i++) stars.push([rnd() * W, rnd() * (HY - 40), rnd() * 6.28, 0.6 + rnd() * 1.4]);
+
+    let travel = 0, t = 0;
+
+    function update(dt) {
+      t += dt;
+      travel += dt * (0.15 + cfg.speed * 0.028);
+      travel -= Math.floor(travel);
+    }
+
+    function drawSun(cy) {
+      const [top, bot] = cfg.sun;
+      sctx.globalCompositeOperation = 'source-over';
+      sctx.clearRect(0, 0, sunCv.width, sunCv.height);
+      const g = sctx.createLinearGradient(0, 2, 0, SR * 2 + 2);
+      g.addColorStop(0, rgba(top, 1));
+      g.addColorStop(0.55, rgba(mix(top, bot, 0.6), 1));
+      g.addColorStop(1, rgba(bot, 1));
+      sctx.fillStyle = g;
+      sctx.beginPath();
+      sctx.arc(SR + 2, SR + 2, SR, 0, Math.PI * 2);
+      sctx.fill();
+      // scrolling stripes in the lower half, thicker toward the bottom
+      sctx.globalCompositeOperation = 'destination-out';
+      sctx.fillStyle = '#000';
+      const ph = (t * 0.35) % 1;
+      for (let i = 0; i < 8; i++) {
+        const k = (i + ph) / 8; // 0..1 down the lower half
+        const y = SR + 2 - SR * 0.15 + k * SR * 1.15;
+        const th = 1.5 + k * 7;
+        sctx.fillRect(0, y - th / 2, sunCv.width, th);
+      }
+      sctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(sunCv, 160 - SR - 2, cy - SR - 2);
+    }
+
+    function render() {
+      const [sunTop, sunBot, skyTop, skyMid, haze] = cfg.sun;
+      const gc = cfg.grid;
+      const gk = cfg.glow / 100;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+
+      // sky
+      const sky = ctx.createLinearGradient(0, 0, 0, HY);
+      sky.addColorStop(0, rgba(skyTop, 1));
+      sky.addColorStop(0.55, rgba(skyMid, 1));
+      sky.addColorStop(1, rgba(mix(skyMid, haze, 0.85), 1));
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, HY);
+
+      // stars
+      for (const s of stars) {
+        const a = 0.35 + 0.35 * Math.sin(t * s[3] + s[2]);
+        ctx.fillStyle = rgba([255, 235, 255], a * (1 - s[1] / HY));
+        ctx.fillRect(s[0], s[1], 2, 2);
+      }
+
+      // sun halo + sun
+      const cy = HY - 34;
+      const halo = ctx.createRadialGradient(160, cy, 10, 160, cy, 150);
+      halo.addColorStop(0, rgba(sunBot, 0.55));
+      halo.addColorStop(0.45, rgba(mix(sunBot, haze, 0.5), 0.22));
+      halo.addColorStop(1, rgba(haze, 0));
+      ctx.fillStyle = halo;
+      ctx.fillRect(0, 0, W, HY);
+      drawSun(cy);
+
+      // mountains
+      ctx.beginPath();
+      ctx.moveTo(-10, HY + 1);
+      for (const p of ridge) ctx.lineTo(p[0], p[1]);
+      ctx.lineTo(W + 10, HY + 1);
+      ctx.closePath();
+      ctx.fillStyle = rgba(mix(skyTop, [0, 0, 0], 0.35), 1);
+      ctx.fill();
+      ctx.strokeStyle = rgba(gc, 0.55);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < ridge.length; i++) { const p = ridge[i]; if (i) ctx.lineTo(p[0], p[1]); else ctx.moveTo(p[0], p[1]); }
+      ctx.stroke();
+
+      // ground
+      const gr = ctx.createLinearGradient(0, HY, 0, H);
+      gr.addColorStop(0, rgba(mix(gc, haze, 0.4), 0.55));
+      gr.addColorStop(0.18, rgba(mix(gc, [10, 0, 25], 0.75), 1));
+      gr.addColorStop(1, rgba(mix(gc, [6, 0, 16], 0.72), 1));
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, HY, W, H - HY);
+      // sun reflection on the floor
+      const rf = ctx.createRadialGradient(160, HY, 4, 160, HY, 120);
+      rf.addColorStop(0, rgba(sunBot, 0.45));
+      rf.addColorStop(1, rgba(sunBot, 0));
+      ctx.fillStyle = rf;
+      ctx.fillRect(0, HY, W, H - HY);
+
+      // perspective grid
+      const camX = Math.sin(t * 0.23) * 34;
+      const depth = H - HY;
+      const passes = [[3.2 + gk * 7, 0.08 + gk * 0.2], [2.4, 0.95]];
+      for (const [lwBase, alpha] of passes) {
+        // vertical lines
+        const vg = ctx.createLinearGradient(0, HY, 0, H);
+        vg.addColorStop(0, rgba(gc, 0));
+        vg.addColorStop(0.25, rgba(gc, alpha * 0.55));
+        vg.addColorStop(1, rgba(gc, alpha));
+        ctx.strokeStyle = vg;
+        ctx.lineWidth = lwBase * 0.85;
+        ctx.beginPath();
+        for (let j = -14; j <= 14; j++) {
+          const wx = j * 44 - camX;
+          ctx.moveTo(160, HY);
+          ctx.lineTo(160 + wx * 2.2, HY + depth * 2.2);
+        }
+        ctx.stroke();
+        // horizontal lines
+        for (let n = 0; n < 34; n++) {
+          const w = n + 1 - travel; // world distance, shrinking as we travel
+          if (w <= 0.05) continue;
+          const y = HY + depth * 0.55 / w;
+          if (y > H + 6) continue;
+          const near = clamp((y - HY) / depth, 0, 1);
+          ctx.strokeStyle = rgba(gc, alpha * clamp(near * 1.6, 0.05, 1));
+          ctx.lineWidth = Math.max(0.6, lwBase * (0.25 + near * 0.9));
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(W, y);
+          ctx.stroke();
+        }
+      }
+
+      // bright horizon line
+      const hz = ctx.createLinearGradient(0, HY - 6, 0, HY + 6);
+      hz.addColorStop(0, rgba(haze, 0));
+      hz.addColorStop(0.5, rgba(mix(haze, [255, 255, 255], 0.35), 0.9));
+      hz.addColorStop(1, rgba(gc, 0));
+      ctx.fillStyle = hz;
+      ctx.fillRect(0, HY - 6, W, 12);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,142 @@
+<head>
+  <title>Focus Timer</title>
+  <meta description="A Pomodoro timer in light: calm colour slowly rises through your focus session, then a soft pulse invites a break." />
+  <meta publisher="Lumora" />
+  <meta category="Wellness & Focus" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="pomodoro,timer,focus,study,work,productivity,break,concentration,deep work,calm" />
+  <meta property="focusMinutes" label="Focus Minutes" type="number" min="1" max="120" step="1" default="25" />
+  <meta property="breakMinutes" label="Break Minutes" type="number" min="1" max="60" step="1" default="5" />
+  <meta property="focusColor" label="Focus Colour" type="color" default="#2f6bff" />
+  <meta property="breakColor" label="Break Colour" type="color" default="#2bd99a" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    const cfg = { focus: 25, brk: 5, fc: [47, 107, 255], bc: [43, 217, 154] };
+    let wall = 0, t0 = null;
+    // elapsed seconds since the effect started (engine.time when available)
+    function clock() {
+      if (typeof engine !== 'undefined' && engine && typeof engine.time === 'number' && isFinite(engine.time)) return engine.time;
+      return wall;
+    }
+    function readProps() {
+      const f = clamp(num(get(() => focusMinutes), 25), 0.1, 240);
+      const b = clamp(num(get(() => breakMinutes), 5), 0.1, 120);
+      if (f !== cfg.focus || b !== cfg.brk) t0 = clock(); // new durations start a fresh session
+      cfg.focus = f; cfg.brk = b;
+      cfg.fc = hexRgb(get(() => focusColor, '#2f6bff'), '#2f6bff');
+      cfg.bc = hexRgb(get(() => breakColor, '#2bd99a'), '#2bd99a');
+    }
+    function onfocusMinutesChanged() { readProps(); }
+    function onbreakMinutesChanged() { readProps(); }
+    function onfocusColorChanged() { readProps(); }
+    function onbreakColorChanged() { readProps(); }
+
+    const PULSE = 6; // seconds of soft pulsing at each hand-over (3 slow pulses)
+    let t = 0;
+
+    // fill the canvas from the bottom up to `level` (0..1) with a gently rolling surface
+    function drawFill(level, col, bright) {
+      if (level <= 0.001) return;
+      const surf = H * (1 - level);
+      const amp = level > 0.995 ? 0 : 3.5;
+      ctx.beginPath();
+      ctx.moveTo(0, H);
+      for (let x = 0; x <= W; x += 10) {
+        const y = surf + Math.sin(x * 0.028 + t * 0.6) * amp + Math.sin(x * 0.011 - t * 0.37) * amp * 0.8;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(W, H);
+      ctx.closePath();
+      const g = ctx.createLinearGradient(0, surf - 6, 0, H);
+      g.addColorStop(0, rgba(mix(col, [255, 255, 255], 0.25), bright));
+      g.addColorStop(0.25, rgba(col, bright * 0.95));
+      g.addColorStop(1, rgba(scale(col, 0.62), bright * 0.95));
+      ctx.fillStyle = g;
+      ctx.fill();
+      // a soft glowing edge so the progress line reads on sparse LEDs
+      if (level < 0.995) {
+        ctx.globalCompositeOperation = 'lighter';
+        const eg = ctx.createLinearGradient(0, surf - 26, 0, surf + 10);
+        eg.addColorStop(0, rgba(col, 0));
+        eg.addColorStop(0.75, rgba(col, 0.35 * bright));
+        eg.addColorStop(1, rgba(col, 0));
+        ctx.fillStyle = eg;
+        ctx.fillRect(0, surf - 26, W, 36);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+
+    function render() {
+      const now = clock();
+      if (t0 === null || t0 > now) t0 = now;
+      const F = cfg.focus * 60, B = cfg.brk * 60;
+      const e = (now - t0) % (F + B);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      let base, level, col, pulse = 0;
+      if (e < F) {
+        // focus: calm colour rises from empty to full
+        col = cfg.fc;
+        level = e / F;
+        base = 0.22;
+        if (e < PULSE && now - t0 > PULSE) pulse = 0.5 - 0.5 * Math.cos(e / PULSE * Math.PI * 6); // welcome back
+        if (e < PULSE && now - t0 > PULSE) pulse *= 1 - e / PULSE;
+      } else {
+        // break: gentle pulse while the colour turns, then it drains as the break runs out
+        const b = e - F;
+        const k = clamp(b / PULSE, 0, 1);
+        col = mix(cfg.fc, cfg.bc, k * k * (3 - 2 * k));
+        level = 1 - b / B;
+        base = 0.22;
+        if (b < PULSE) pulse = (0.5 - 0.5 * Math.cos(b / PULSE * Math.PI * 6)) * (1 - b / PULSE * 0.5);
+        else pulse = 0.08 * (0.5 - 0.5 * Math.cos((b - PULSE) * 0.6)); // slow restful breathing
+      }
+      // the empty part of the vessel keeps a dim tint of the current colour
+      ctx.fillStyle = rgba(col, base + pulse * 0.25);
+      ctx.fillRect(0, 0, W, H);
+      const vg = ctx.createRadialGradient(160, 100, 40, 160, 100, 200);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.35)');
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, W, H);
+      drawFill(level, col, clamp(0.78 + pulse * 0.22, 0, 1));
+      if (pulse > 0.01) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = rgba(mix(col, [255, 255, 255], 0.3), pulse * 0.28);
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const raw = last === null ? 0 : Math.max(0, (now - last) / 1000);
+      last = now;
+      wall += raw; // real elapsed time, uncapped, for the timer itself
+      t += Math.min(raw, 0.1);
+      readProps();
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

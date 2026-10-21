@@ -1,0 +1,164 @@
+<head>
+  <title>Galaxy Spin</title>
+  <meta description="A spiral galaxy wheels slowly around its glowing heart, thousands of stars strung along sweeping arms that fade from cyan to violet." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="space,galaxy,spiral,milky way,stars,rotation,cosmic,ambient,universe" />
+  <meta property="armCount" label="Arm Count" type="number" min="1" max="6" default="2" />
+  <meta property="rotationSpeed" label="Rotation Speed" type="number" min="1" max="100" default="30" />
+  <meta property="coreColor" label="Core Color" type="color" default="#ffeccc" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, LW = 160, LH = 100, S = W / LW, CX = 160, CY = 100;
+    const INCL = Math.cos(58 * Math.PI / 180), PA = -0.22, CPA = Math.cos(PA), SPA = Math.sin(PA);
+    const WIND = 2.7; // how tightly the arms wind (1 / tan(pitch))
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const sstep = (a, b, v) => { const x = clamp01((v - a) / (b - a)); return x * x * (3 - 2 * x); };
+    const toRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+
+    let seed = 3301;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const PERM = new Uint16Array(512), VAL = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { PERM[i] = i; VAL[i] = rand(); }
+    for (let i = 255; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); const s = PERM[i]; PERM[i] = PERM[j]; PERM[j] = s; }
+    for (let i = 0; i < 256; i++) PERM[i + 256] = PERM[i];
+    function noise(x, y) {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      let fx = x - xi, fy = y - yi;
+      const X = xi & 255, Y = yi & 255;
+      const a = VAL[PERM[PERM[X] + Y]], b = VAL[PERM[PERM[X + 1] + Y]];
+      const c = VAL[PERM[PERM[X] + Y + 1]], d = VAL[PERM[PERM[X + 1] + Y + 1]];
+      fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+      return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+    }
+
+    const cfg = { arms: 2, speed: 30, core: [255, 236, 204] };
+    function readProps() {
+      cfg.arms = Math.round(numIn(read(() => armCount, 2), 2, 1, 6));
+      cfg.speed = numIn(read(() => rotationSpeed, 30), 30, 0, 100);
+      cfg.core = toRgb(read(() => coreColor, '#ffeccc'), 'ffeccc');
+    }
+    function onarmCountChanged() { readProps(); }
+    function onrotationSpeedChanged() { readProps(); }
+    function oncoreColorChanged() { readProps(); }
+
+    const INNER = [70, 210, 255], OUTER = [160, 80, 255];
+
+    const buf = document.createElement('canvas');
+    buf.width = LW; buf.height = LH;
+    const bctx = buf.getContext('2d');
+    const img = bctx.createImageData(LW, LH);
+    const px = img.data;
+
+    // galaxy-plane coordinates of every low-res pixel never change: precompute
+    const NPX = LW * LH;
+    const gR = new Float32Array(NPX), gA = new Float32Array(NPX), gLog = new Float32Array(NPX);
+    for (let j = 0, k = 0; j < LH; j++) {
+      for (let i = 0; i < LW; i++, k++) {
+        const sx = (i + 0.5) * S - CX, sy = (j + 0.5) * S - CY;
+        const u = sx * CPA + sy * SPA, v = (-sx * SPA + sy * CPA) / INCL;
+        gR[k] = Math.sqrt(u * u + v * v);
+        gA[k] = Math.atan2(v, u);
+        gLog[k] = Math.log(Math.max(gR[k], 4) / 20) * WIND;
+      }
+    }
+
+    let rot = 0, clock = 0, starArms = -1, last = null;
+    const stars = [];
+    function buildStars() {
+      starArms = cfg.arms;
+      stars.length = 0;
+      for (let i = 0; i < 650; i++) {
+        const r = 10 + Math.min(175, -Math.log(1 - Math.random() * 0.995) * 48);
+        const arm = Math.floor(Math.random() * cfg.arms);
+        const onArm = Math.random() < 0.78;
+        const scatter = (Math.random() + Math.random() + Math.random() - 1.5) * (onArm ? 0.5 : 3.2);
+        const a = arm * Math.PI * 2 / cfg.arms + Math.log(r / 20) * WIND + scatter;
+        const t = sstep(15, 150, r);
+        stars.push({ r, a, size: 0.7 + Math.random() * 1.1, tw: Math.random() * 6.28, ts: 0.8 + Math.random() * 2.5, t, bright: 0.45 + Math.random() * 0.55 });
+      }
+    }
+
+    function renderGlow() {
+      const k = cfg.arms, core = cfg.core;
+      // co-rotating frame for clumps so star-forming knots ride along the arms
+      for (let n = 0, o = 0; n < NPX; n++, o += 4) {
+        const r = gR[n];
+        const psi = gA[n] - rot - gLog[n];
+        const wave = 0.5 + 0.5 * Math.cos(k * psi);
+        const arm = wave * wave * wave;
+        const ca = Math.cos(gA[n] - rot), sa = Math.sin(gA[n] - rot);
+        const knot = noise(ca * r * 0.06 + 20, sa * r * 0.06 + 20);
+        const lane = Math.pow(0.5 + 0.5 * Math.cos(k * (psi + 0.42)), 8) * sstep(12, 40, r);
+        const armI = arm * (0.45 + 0.9 * knot) * Math.exp(-r / 115) * sstep(6, 26, r) * 1.3;
+        const disk = 0.28 * Math.exp(-r / 60);
+        const bulge = Math.exp(-(r * r) / 260) * 1.0 + Math.exp(-r / 22) * 0.45;
+        const t = sstep(12, 150, r);
+        const ar = INNER[0] + (OUTER[0] - INNER[0]) * t, ag = INNER[1] + (OUTER[1] - INNER[1]) * t, ab = INNER[2] + (OUTER[2] - INNER[2]) * t;
+        const dim = 1 - lane * 0.55;
+        const hot = Math.max(0, knot - 0.62) * arm * 2.2 * Math.exp(-r / 120);
+        let R = (ar * (armI + disk) + core[0] * bulge) * dim + 255 * hot;
+        let G = (ag * (armI + disk) + core[1] * bulge) * dim + 245 * hot;
+        let B = (ab * (armI + disk) + core[2] * bulge) * dim + 255 * hot;
+        // faint intergalactic blue so LEDs at the edges stay softly lit
+        px[o] = R + 6; px[o + 1] = G + 10; px[o + 2] = B + 26; px[o + 3] = 255;
+      }
+      bctx.putImageData(img, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(buf, 0, 0, W, H);
+    }
+
+    function renderStars() {
+      if (starArms !== cfg.arms) buildStars();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const s of stars) {
+        const a = s.a + rot;
+        const gx = Math.cos(a) * s.r, gy = Math.sin(a) * s.r * INCL;
+        const x = CX + gx * CPA - gy * SPA, y = CY + gx * SPA + gy * CPA;
+        if (x < -4 || x > W + 4 || y < -4 || y > H + 4) continue;
+        const tw = s.bright * (0.6 + 0.4 * Math.sin(clock * s.ts + s.tw));
+        const c0 = 255 - 90 * s.t, c1 = 240 - 40 * s.t;
+        ctx.fillStyle = 'rgba(' + (c0 | 0) + ',' + (c1 | 0) + ',255,' + clamp01(tw).toFixed(3) + ')';
+        const sz = s.size * 2;
+        ctx.fillRect(x - s.size, y - s.size, sz, sz);
+      }
+      // bright nucleus
+      const core = cfg.core;
+      const g = ctx.createRadialGradient(CX, CY, 0, CX, CY, 34);
+      g.addColorStop(0, 'rgba(255,255,255,0.9)');
+      g.addColorStop(0.25, 'rgba(' + core[0] + ',' + core[1] + ',' + core[2] + ',0.55)');
+      g.addColorStop(1, 'rgba(' + core[0] + ',' + core[1] + ',' + core[2] + ',0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(CX - 34, CY - 34, 68, 68);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      clock += dt;
+      rot += dt * (0.015 + cfg.speed * 0.005);
+      if (rot > Math.PI * 200) rot -= Math.PI * 200;
+      renderGlow();
+      renderStars();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

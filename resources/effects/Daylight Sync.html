@@ -1,0 +1,143 @@
+<head>
+  <title>Daylight Sync</title>
+  <meta description="Your lights follow the real sky: amber sunrise, clear bright daylight, golden hour and a deep blue night, blended through the day." />
+  <meta publisher="Lumora" />
+  <meta category="Wellness & Focus" />
+  <meta energy="calm" />
+  <meta palette="natural" />
+  <meta tags="circadian,daylight,sunrise,sunset,clock,time of day,golden hour,night,natural,wellbeing" />
+  <meta property="brightness" label="Brightness" type="number" min="5" max="100" default="85" />
+  <meta property="nightColor" label="Night Colour" type="color" default="#1c2c7a" />
+  <meta property="timeOffset" label="Time Offset (hours)" type="number" min="-12" max="12" step="0.5" default="0" tooltip="Shift the sky earlier or later than your clock" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    const cfg = { bright: 85, night: [28, 44, 122], offset: 0 };
+    let keys = [];
+    function buildKeys() {
+      const N = cfg.night, AMBER = [255, 130, 40];
+      const nTop = scale(N, 0.6), nBot = mix(scale(N, 0.7), AMBER, 0.42);
+      // [hour, sky top, sky bottom, sun glow strength]
+      keys = [
+        [0, nTop, nBot, 0],
+        [4.6, nTop, nBot, 0],
+        [5.6, [46, 42, 118], [170, 72, 96], 0.15],
+        [6.6, [95, 110, 205], [255, 122, 38], 0.75],
+        [8.0, [140, 185, 255], [255, 196, 135], 0.7],
+        [11.0, [178, 214, 255], [255, 248, 236], 0.55],
+        [15.0, [168, 206, 255], [255, 240, 214], 0.55],
+        [17.4, [150, 158, 220], [255, 172, 62], 0.8],
+        [18.7, [96, 70, 150], [255, 88, 38], 0.85],
+        [19.8, [40, 42, 112], [160, 62, 82], 0.2],
+        [21.0, nTop, nBot, 0],
+        [24, nTop, nBot, 0]
+      ];
+    }
+    function readProps() {
+      cfg.bright = clamp(num(get(() => brightness), 85), 0, 100);
+      const n = hexRgb(get(() => nightColor, '#1c2c7a'), '#1c2c7a');
+      cfg.offset = clamp(num(get(() => timeOffset), 0), -24, 24);
+      if (!keys.length || n.join() !== cfg.night.join()) { cfg.night = n; buildKeys(); }
+    }
+    function onbrightnessChanged() { readProps(); }
+    function onnightColorChanged() { readProps(); }
+    function ontimeOffsetChanged() { readProps(); }
+
+    function skyAt(h) {
+      h = ((h % 24) + 24) % 24;
+      let i = 0;
+      while (i < keys.length - 2 && keys[i + 1][0] <= h) i++;
+      const a = keys[i], b = keys[i + 1];
+      const k = clamp((h - a[0]) / (b[0] - a[0]), 0, 1);
+      const s = 0.5 - 0.5 * Math.cos(k * Math.PI);
+      return { top: mix(a[1], b[1], s), bot: mix(a[2], b[2], s), sun: a[3] + (b[3] - a[3]) * s };
+    }
+
+    let t = 0;
+    const clouds = [];
+    for (let i = 0; i < 4; i++) clouds.push({ x: Math.random() * W, y: 30 + Math.random() * 110, r: 70 + Math.random() * 50, v: 2 + Math.random() * 3, p: Math.random() * 6 });
+
+    function render(dt) {
+      t += dt;
+      const d = new Date();
+      const hour = d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600 + cfg.offset;
+      const h = ((hour % 24) + 24) % 24;
+      const sky = skyAt(h);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, rgba(sky.top, 1));
+      g.addColorStop(0.55, rgba(mix(sky.top, sky.bot, 0.45), 1));
+      g.addColorStop(1, rgba(sky.bot, 1));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      // the sun travels its arc between ~6:00 and ~19:30
+      const u = (h - 6) / 13.5;
+      if (sky.sun > 0.01 && u > -0.1 && u < 1.1) {
+        const sx = 20 + u * 280, sy = 205 - Math.sin(clamp(u, 0, 1) * Math.PI) * 150;
+        const sc = mix(sky.bot, [255, 255, 245], 0.35);
+        const r = 150;
+        const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+        sg.addColorStop(0, rgba(sc, 0.6 * sky.sun));
+        sg.addColorStop(0.3, rgba(sc, 0.22 * sky.sun));
+        sg.addColorStop(1, rgba(sc, 0));
+        ctx.fillStyle = sg;
+        ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+      }
+      // a faint moon glow at night
+      const night = 1 - clamp(sky.sun / 0.15, 0, 1);
+      if (night > 0.01) {
+        const mu = ((h + 6) % 24) / 12; // rises ~18:00, sets ~6:00
+        if (mu > 0 && mu < 1) {
+          const mx = 30 + mu * 260, my = 190 - Math.sin(mu * Math.PI) * 140;
+          const mg = ctx.createRadialGradient(mx, my, 0, mx, my, 90);
+          mg.addColorStop(0, rgba([170, 190, 255], 0.22 * night));
+          mg.addColorStop(1, rgba([170, 190, 255], 0));
+          ctx.fillStyle = mg;
+          ctx.fillRect(mx - 90, my - 90, 180, 180);
+        }
+      }
+      // slow drifting soft light so the room never feels static
+      const tint = mix(sky.top, [255, 255, 255], 0.12 + 0.38 * (1 - night));
+      for (const c of clouds) {
+        c.x += c.v * dt;
+        if (c.x - c.r > W) c.x = -c.r;
+        const a = (0.07 + 0.04 * Math.sin(t * 0.13 + c.p)) * (1 - night * 0.5);
+        const cg = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.r);
+        cg.addColorStop(0, rgba(tint, a));
+        cg.addColorStop(1, rgba(tint, 0));
+        ctx.fillStyle = cg;
+        ctx.fillRect(c.x - c.r, c.y - c.r, c.r * 2, c.r * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      const dim = 1 - (0.1 + 0.9 * cfg.bright / 100);
+      if (dim > 0.005) { ctx.fillStyle = 'rgba(0,0,0,' + dim.toFixed(3) + ')'; ctx.fillRect(0, 0, W, H); }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      render(dt);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,124 @@
+<head>
+  <title>Breathing Coach</title>
+  <meta description="A guiding orb of light that swells as you breathe in, rests while you hold, and softens away as you breathe out." />
+  <meta publisher="Lumora" />
+  <meta category="Wellness & Focus" />
+  <meta energy="calm" />
+  <meta palette="pastel" />
+  <meta tags="breathing,breathe,meditation,mindfulness,box breathing,4-7-8,relax,anxiety,calm,sleep" />
+  <meta property="pattern" label="Pattern" type="combobox" values="Box 4-4-4-4,4-7-8,Calm 5-5" default="Box 4-4-4-4" tooltip="Seconds of inhale, hold, exhale and hold" />
+  <meta property="inhaleColor" label="Inhale Colour" type="color" default="#8fd6ff" />
+  <meta property="exhaleColor" label="Exhale Colour" type="color" default="#ffa9cf" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, CX = 160, CY = 100;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    const scale = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const ease = (x) => 0.5 - 0.5 * Math.cos(clamp(x, 0, 1) * Math.PI);
+
+    const PATTERNS = {
+      'Box 4-4-4-4': [['in', 4], ['full', 4], ['out', 4], ['empty', 4]],
+      '4-7-8': [['in', 4], ['full', 7], ['out', 8]],
+      'Calm 5-5': [['in', 5], ['out', 5]]
+    };
+    const cfg = { pattern: 'Box 4-4-4-4', inC: [143, 214, 255], outC: [255, 169, 207] };
+    let phases = PATTERNS['Box 4-4-4-4'], cycle = 16, t = 0;
+    function readProps() {
+      const p = String(get(() => pattern, 'Box 4-4-4-4'));
+      cfg.inC = hexRgb(get(() => inhaleColor, '#8fd6ff'), '#8fd6ff');
+      cfg.outC = hexRgb(get(() => exhaleColor, '#ffa9cf'), '#ffa9cf');
+      if (p !== cfg.pattern) { cfg.pattern = p; t = 0; } // restart on a new pattern
+      phases = PATTERNS[cfg.pattern] || PATTERNS['Box 4-4-4-4'];
+      cycle = phases.reduce((s, ph) => s + ph[1], 0);
+    }
+    function onpatternChanged() { readProps(); }
+    function oninhaleColorChanged() { readProps(); }
+    function onexhaleColorChanged() { readProps(); }
+
+    // push a colour away from grey so blended hold colours stay vivid
+    function vivid(c, k) { const m = (c[0] + c[1] + c[2]) / 3; return [m + (c[0] - m) * k, m + (c[1] - m) * k, m + (c[2] - m) * k]; }
+    function phaseColor(kind) {
+      switch (kind) {
+        case 'in': return cfg.inC;
+        case 'full': return mix(vivid(mix(cfg.inC, cfg.outC, 0.45), 1.8), [255, 255, 255], 0.2); // bright, airy pause
+        case 'out': return cfg.outC;
+        default: return scale(vivid(mix(cfg.outC, cfg.inC, 0.55), 2.2), 0.85); // quiet, settled pause
+      }
+    }
+
+    function state() {
+      let e = t % cycle, i = 0;
+      while (i < phases.length - 1 && e >= phases[i][1]) { e -= phases[i][1]; i++; }
+      const [kind, dur] = phases[i];
+      const p = clamp(e / dur, 0, 1);
+      let size;
+      if (kind === 'in') size = ease(p);
+      else if (kind === 'out') size = 1 - ease(p);
+      else size = kind === 'full' ? 1 : 0;
+      const prev = phases[(i + phases.length - 1) % phases.length][0];
+      // colours ease across the first part of each phase
+      const k = ease(clamp(e / Math.min(1.5, dur * 0.4), 0, 1));
+      const col = mix(phaseColor(prev), phaseColor(kind), k);
+      return { kind, p, e, size, col };
+    }
+
+    function render() {
+      const s = state();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      // ambient wash of the phase colour so every LED stays softly lit
+      ctx.fillStyle = rgba(s.col, 0.24 + s.size * 0.1);
+      ctx.fillRect(0, 0, W, H);
+      const hold = s.kind === 'full' || s.kind === 'empty';
+      // during a hold the light shimmers very slightly, so you know to stay still
+      const shimmer = hold ? 0.04 * Math.sin(s.e * Math.PI * 0.8) : 0;
+      const r = 34 + s.size * 150 + shimmer * 40;
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.scale(1.3, 1);
+      ctx.globalCompositeOperation = 'lighter';
+      const halo = r * 1.45;
+      const hg = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, halo);
+      hg.addColorStop(0, rgba(s.col, 0.35));
+      hg.addColorStop(1, rgba(s.col, 0));
+      ctx.fillStyle = hg;
+      ctx.fillRect(-halo, -halo, halo * 2, halo * 2);
+      ctx.globalCompositeOperation = 'source-over';
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+      const core = mix(s.col, [255, 255, 255], 0.45 + shimmer);
+      g.addColorStop(0, rgba(core, 0.95));
+      g.addColorStop(0.55, rgba(s.col, 0.9));
+      g.addColorStop(0.85, rgba(s.col, 0.55));
+      g.addColorStop(1, rgba(s.col, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      t += dt;
+      readProps();
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

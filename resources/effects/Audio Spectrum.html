@@ -1,0 +1,162 @@
+<head>
+  <title>Audio Spectrum</title>
+  <meta description="A live spectrum analyzer that dances to whatever is playing." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="rainbow" />
+  <meta tags="audio,music,party" />
+  <meta property="mode" label="Layout" type="combobox" values="Bars Bottom,Bars Center,Mirror" default="Bars Bottom" />
+  <meta property="colorMode" label="Color Mode" type="combobox" values="Rainbow,Gradient,Solid" default="Rainbow" />
+  <meta property="color1" label="Color 1" type="color" default="#00e5ff" />
+  <meta property="color2" label="Color 2" type="color" default="#ff00aa" />
+  <meta property="sensitivity" label="Sensitivity" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      switch (i) {
+        case 0: return [v, t, p];
+        case 1: return [q, v, p];
+        case 2: return [p, v, t];
+        case 3: return [p, q, v];
+        case 4: return [t, p, v];
+        default: return [v, p, q];
+      }
+    }
+    const rgb = (c) => 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')';
+    const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+
+    const N = 32; // spectrum bands shown
+    const disp = new Float32Array(N), peak = new Float32Array(N), target = new Float32Array(N);
+    const cfg = { mode: 'Bars Bottom', colorMode: 'Rainbow', c1: [0, 229, 255], c2: [255, 0, 170], sens: 50 };
+    let t = 0, idleW = 1, bassGlow = 0;
+
+    function readProps() {
+      cfg.mode = String(get(() => mode, 'Bars Bottom'));
+      cfg.colorMode = String(get(() => colorMode, 'Rainbow'));
+      cfg.c1 = hexRgb(get(() => color1, '#00e5ff'), '#00e5ff');
+      cfg.c2 = hexRgb(get(() => color2, '#ff00aa'), '#ff00aa');
+      cfg.sens = clamp(num(get(() => sensitivity), 50), 1, 100);
+    }
+    function onmodeChanged() { readProps(); }
+    function oncolorModeChanged() { readProps(); }
+    function oncolor1Changed() { readProps(); }
+    function oncolor2Changed() { readProps(); }
+    function onsensitivityChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt;
+      const a = getAudio();
+      const freq = a && a.freq && a.freq.length ? a.freq : null;
+      const signal = !!(freq && (num(a.level, 0) > 0.003 || freq[0] > 0.003 || freq[8] > 0.003));
+      idleW += ((signal ? 0 : 1) - idleW) * (1 - Math.exp(-dt * 1.5));
+      const gain = 0.25 + cfg.sens / 50 * 1.25;
+      for (let i = 0; i < N; i++) {
+        let v = 0;
+        if (freq) {
+          const lo = Math.floor(i * freq.length / N), hi = Math.max(lo + 1, Math.floor((i + 1) * freq.length / N));
+          for (let k = lo; k < hi; k++) { const f = num(freq[k], 0); if (f > v) v = f; }
+          v = clamp(v * gain * (1 + i / N * 0.6), 0, 1);
+        }
+        const idle = 0.14 + 0.1 * Math.sin(i * 0.35 + t * 1.6) + 0.05 * Math.sin(i * 0.9 - t * 2.3);
+        target[i] = v * (1 - idleW) + idle * idleW;
+        // fast attack, smooth release
+        const rate = target[i] > disp[i] ? 30 : 5;
+        disp[i] += (target[i] - disp[i]) * (1 - Math.exp(-dt * rate));
+        peak[i] = Math.max(disp[i], peak[i] - dt * 0.45);
+      }
+      const bass = a ? clamp(num(a.bass, 0) * gain, 0, 1) : 0;
+      bassGlow += (bass * (1 - idleW) - bassGlow) * (1 - Math.exp(-dt * 10));
+    }
+
+    function barColor(i, frac) {
+      if (cfg.colorMode === 'Solid') return cfg.c1;
+      if (cfg.colorMode === 'Gradient') return null;
+      const h = hsv(frac * 0.85 + t * 0.02, 1, 1);
+      return [h[0] * 255, h[1] * 255, h[2] * 255];
+    }
+
+    function render() {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      // subtle bass-driven backdrop
+      if (bassGlow > 0.01) {
+        ctx.fillStyle = rgba(cfg.colorMode === 'Rainbow' ? hsv(t * 0.02, 1, 1).map((x) => x * 255) : cfg.c1, bassGlow * 0.18);
+        ctx.fillRect(0, 0, W, H);
+      }
+      const center = cfg.mode === 'Bars Center';
+      const mirror = cfg.mode === 'Mirror';
+      let grad = null;
+      if (cfg.colorMode === 'Gradient') {
+        if (center) {
+          grad = ctx.createLinearGradient(0, 0, 0, H);
+          grad.addColorStop(0, rgb(cfg.c2));
+          grad.addColorStop(0.5, rgb(cfg.c1));
+          grad.addColorStop(1, rgb(cfg.c2));
+        } else {
+          grad = ctx.createLinearGradient(0, H, 0, 0);
+          grad.addColorStop(0, rgb(cfg.c1));
+          grad.addColorStop(1, rgb(cfg.c2));
+        }
+      }
+      const bw = W / N;
+      for (let j = 0; j < N; j++) {
+        // Mirror puts the bass in the middle and spreads highs to both edges.
+        const band = mirror ? Math.min(N - 1, Math.floor(Math.abs(j - (N - 1) / 2) * 2)) : j;
+        const v = disp[band], pk = peak[band];
+        const c = barColor(band, band / N);
+        ctx.fillStyle = grad || rgb(c);
+        const x = j * bw;
+        if (center) {
+          const h = v * H / 2;
+          ctx.fillRect(x, H / 2 - h, bw, h * 2);
+        } else {
+          const h = v * H;
+          ctx.fillRect(x, H - h, bw, h);
+        }
+        // peak cap
+        if (pk > 0.03) {
+          ctx.fillStyle = grad || rgba(c ? [c[0] + (255 - c[0]) * 0.5, c[1] + (255 - c[1]) * 0.5, c[2] + (255 - c[2]) * 0.5] : [255, 255, 255], 0.85);
+          if (center) {
+            const h = pk * H / 2;
+            ctx.fillRect(x, H / 2 - h - 4, bw, 4);
+            ctx.fillRect(x, H / 2 + h, bw, 4);
+          } else {
+            ctx.fillRect(x, H - pk * H - 5, bw, 5);
+          }
+        }
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,161 @@
+<head>
+  <title>Candlelight</title>
+  <meta description="A cluster of candles, each flickering on its own breath of air, pooling soft amber light around them." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="calm" />
+  <meta palette="warm" />
+  <meta tags="candle,candles,flame,cozy,hygge,warm,romantic,relax,evening,fire" />
+  <meta property="candleCount" label="Candles" type="number" min="1" max="8" step="1" default="5" />
+  <meta property="flicker" label="Flicker" type="number" min="0" max="100" default="45" />
+  <meta property="warmth" label="Warmth" type="number" min="0" max="100" default="65" tooltip="Low is a soft yellow glow, high is a deep amber" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    // small seeded generator so the arrangement is the same every time
+    function seeded(s) { return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+
+    const cfg = { count: 5, flicker: 45, warmth: 65 };
+    let candles = [];
+    function build() {
+      const n = clamp(Math.round(cfg.count), 1, 12);
+      if (candles.length === n) return;
+      const rnd = seeded(7919 + n * 31);
+      candles = [];
+      for (let i = 0; i < n; i++) {
+        const slot = (i + 0.5) / n;
+        const x = n === 1 ? 160 : 26 + slot * (W - 52) + (rnd() - 0.5) * (W / n) * 0.35;
+        const top = 92 + rnd() * 52;
+        candles.push({
+          x, top, w: 20 + rnd() * 12,
+          p: [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28, rnd() * 6.28],
+          f: [0.9 + rnd() * 0.6, 2.7 + rnd() * 1.4, 6.5 + rnd() * 3, 11 + rnd() * 4],
+          gust: 0, gustDir: 0, nextGust: 2 + rnd() * 8, I: 1, sway: 0
+        });
+      }
+      candles.sort((a, b) => a.top - b.top); // taller (further back) candles first
+    }
+    function readProps() {
+      cfg.count = clamp(num(get(() => candleCount), 5), 1, 12);
+      cfg.flicker = clamp(num(get(() => flicker), 45), 0, 100);
+      cfg.warmth = clamp(num(get(() => warmth), 65), 0, 100);
+      build();
+    }
+    function oncandleCountChanged() { readProps(); }
+    function onflickerChanged() { readProps(); }
+    function onwarmthChanged() { readProps(); }
+
+    let t = 0;
+    function update(dt) {
+      t += dt;
+      const fl = cfg.flicker / 100;
+      for (const c of candles) {
+        const n = 0.5 * Math.sin(t * c.f[0] + c.p[0]) + 0.28 * Math.sin(t * c.f[1] + c.p[1]) + 0.14 * Math.sin(t * c.f[2] + c.p[2]) + 0.08 * Math.sin(t * c.f[3] + c.p[3]);
+        c.nextGust -= dt;
+        if (c.nextGust <= 0) { c.gust = 0.6 + Math.random() * 0.4; c.gustDir = Math.random() < 0.5 ? -1 : 1; c.nextGust = 3 + Math.random() * 9 / (0.3 + fl); }
+        c.gust *= Math.exp(-dt / 0.45);
+        // a gust makes the flame stutter for a moment, then it settles
+        const stutter = c.gust * (0.5 + 0.5 * Math.sin(t * 17 + c.p[3]));
+        c.I = clamp(0.86 + fl * (0.12 * n - 0.32 * stutter), 0.35, 1.05);
+        c.sway = fl * (3 * Math.sin(t * 0.8 + c.p[1]) + 2 * n + c.gustDir * c.gust * 9);
+      }
+    }
+
+    function drawFlame(x, base, h, sway, col, alpha, widthK) {
+      const tipX = x + sway, tipY = base - h;
+      const w = h * 0.3 * widthK;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.bezierCurveTo(x + sway * 0.4 + w * 1.1, base - h * 0.55, x + w * 1.05, base - h * 0.05, x, base);
+      ctx.bezierCurveTo(x - w * 1.05, base - h * 0.05, x + sway * 0.4 - w * 1.1, base - h * 0.55, tipX, tipY);
+      ctx.closePath();
+      const g = ctx.createRadialGradient(x + sway * 0.2, base - h * 0.28, 0, x + sway * 0.3, base - h * 0.4, h * 0.75);
+      g.addColorStop(0, rgba([255, 250, 225], alpha));
+      g.addColorStop(0.35, rgba(col, alpha));
+      g.addColorStop(1, rgba([col[0], col[1] * 0.4, col[2] * 0.2], alpha * 0.3));
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    function render() {
+      const wk = cfg.warmth / 100;
+      const flameC = mix([255, 205, 120], [255, 135, 30], wk);
+      const glowC = mix([255, 180, 95], [255, 95, 15], wk);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      // a dark room with a hint of warm wood
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#040101');
+      bg.addColorStop(1, rgba(mix([30, 12, 4], [36, 10, 2], wk), 1));
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      let total = 0;
+      for (const c of candles) total += c.I;
+      // the room's shared warmth
+      const amb = ctx.createRadialGradient(160, 150, 0, 160, 150, 230);
+      amb.addColorStop(0, rgba(glowC, clamp(0.08 + total * 0.035, 0, 0.35)));
+      amb.addColorStop(1, rgba(glowC, 0));
+      ctx.fillStyle = amb;
+      ctx.fillRect(0, 0, W, H);
+      for (const c of candles) {
+        const fy = c.top - 4;
+        const r = 70 + c.I * 50;
+        const g = ctx.createRadialGradient(c.x + c.sway * 0.3, fy - 8, 0, c.x, fy - 8, r);
+        g.addColorStop(0, rgba(glowC, 0.55 * c.I));
+        g.addColorStop(0.45, rgba(glowC, 0.2 * c.I));
+        g.addColorStop(1, rgba(glowC, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(c.x - r, fy - 8 - r, r * 2, r * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // wax bodies, lit from their own flame at the top
+      for (const c of candles) {
+        const bx = c.x - c.w / 2;
+        const g = ctx.createLinearGradient(0, c.top, 0, H);
+        g.addColorStop(0, rgba(mix([255, 226, 190], glowC, 0.35), 0.85 * c.I));
+        g.addColorStop(0.35, rgba(mix([150, 100, 70], glowC, 0.3), 0.75));
+        g.addColorStop(1, rgba([45, 25, 15], 0.9));
+        ctx.fillStyle = g;
+        ctx.fillRect(bx, c.top, c.w, H - c.top);
+        const sg = ctx.createLinearGradient(bx, 0, bx + c.w, 0);
+        sg.addColorStop(0, 'rgba(0,0,0,0.35)');
+        sg.addColorStop(0.45, 'rgba(0,0,0,0)');
+        sg.addColorStop(1, 'rgba(0,0,0,0.4)');
+        ctx.fillStyle = sg;
+        ctx.fillRect(bx, c.top, c.w, H - c.top);
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      for (const c of candles) {
+        const base = c.top - 2;
+        const h = 22 + 12 * c.I;
+        drawFlame(c.x, base, h * 1.5, c.sway * 1.3, glowC, 0.35 * c.I, 1.5);
+        drawFlame(c.x, base, h, c.sway, flameC, 0.95, 1);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

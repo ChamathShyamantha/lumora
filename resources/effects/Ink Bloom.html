@@ -1,0 +1,191 @@
+<head>
+  <title>Ink Bloom</title>
+  <meta description="Drops of coloured ink bloom open and curl into one another like ink falling through still water." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="natural" />
+  <meta tags="ink,water,fluid,watercolor,swirl,marbling,flow,organic,relaxing" />
+  <meta property="inkColors" label="Ink Colours" type="combobox" values="Watercolour,Indigo & Gold,Coral Reef,Moss & Amber,Berry" default="Watercolour" />
+  <meta property="flowSpeed" label="Flow Speed" type="number" min="1" max="100" default="40" />
+  <meta property="dropRate" label="Drop Rate" type="number" min="1" max="100" default="45" tooltip="How often a new drop of ink falls" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const INKS = {
+      'Watercolour': [[30, 60, 210], [0, 170, 160], [215, 25, 60], [240, 160, 20], [90, 170, 40]],
+      'Indigo & Gold': [[35, 30, 200], [250, 175, 20], [70, 110, 255], [255, 120, 10]],
+      'Coral Reef': [[255, 80, 70], [0, 200, 190], [255, 170, 90], [20, 120, 230], [255, 60, 130]],
+      'Moss & Amber': [[60, 160, 30], [235, 140, 10], [150, 200, 40], [190, 70, 10], [20, 120, 70]],
+      'Berry': [[200, 0, 120], [110, 20, 210], [235, 40, 70], [60, 40, 220], [255, 90, 170]]
+    };
+
+    const GW = 96, GH = 60, N = GW * GH;
+    const SX = W / GW;
+    let R = new Float32Array(N), G = new Float32Array(N), Bl = new Float32Array(N);
+    let R2 = new Float32Array(N), G2 = new Float32Array(N), B2 = new Float32Array(N);
+    const VX = new Float32Array(N), VY = new Float32Array(N);
+
+    // Stream function made of a few drifting waves; its curl gives a swirling, divergence-free flow.
+    const WAVES = [];
+    for (let k = 0; k < 5; k++) {
+      const ang = k * 2.39996 + 0.4, kk = (2 * Math.PI) / (34 + k * 9);
+      WAVES.push({ kx: Math.cos(ang) * kk, ky: Math.sin(ang) * kk, w: 0.13 + k * 0.05, ph: k * 1.7, a: 26 - k * 2.5 });
+    }
+
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const drops = [];
+    const cfg = { inks: 'Watercolour', flow: 40, rate: 45 };
+    let t = 0, dropTimer = 0, inkIndex = 0;
+    const img = buffer(GW, GH);
+
+    function readProps() {
+      const s = String(get(() => inkColors, 'Watercolour'));
+      cfg.inks = INKS[s] ? s : 'Watercolour';
+      cfg.flow = clamp(num(get(() => flowSpeed), 40), 0, 100);
+      cfg.rate = clamp(num(get(() => dropRate), 45), 0, 100);
+    }
+    function oninkColorsChanged() { readProps(); }
+    function onflowSpeedChanged() { readProps(); }
+    function ondropRateChanged() { readProps(); }
+
+    function addDrop() {
+      const inks = INKS[cfg.inks];
+      inkIndex = (inkIndex + 1 + ((rnd() * (inks.length - 1)) | 0)) % inks.length;
+      drops.push({
+        x: 10 + rnd() * (GW - 20), y: 8 + rnd() * (GH - 16),
+        c: inks[inkIndex], age: 0, dur: 1.4 + rnd() * 0.8,
+        size: 4.5 + rnd() * 4, spin: (rnd() < 0.5 ? -1 : 1) * (10 + rnd() * 14)
+      });
+    }
+
+    function update(dt) {
+      const fs = 0.1 + cfg.flow * 0.02;
+      t += dt * fs;
+      dropTimer -= dt;
+      if (dropTimer <= 0) {
+        addDrop();
+        dropTimer = 5.5 - cfg.rate * 0.048 + rnd() * 1.2;
+      }
+      // Velocity field: ambient curl flow plus each fresh drop's outward bloom and gentle spin.
+      for (let j = 0, o = 0; j < GH; j++) {
+        for (let i = 0; i < GW; i++, o++) {
+          let vx = 0, vy = 0;
+          for (let k = 0; k < 5; k++) {
+            const wv = WAVES[k];
+            const c = wv.a * Math.cos(wv.kx * i + wv.ky * j + wv.w * t * 6 + wv.ph);
+            vx += c * wv.ky; vy -= c * wv.kx;
+          }
+          VX[o] = vx * fs * 1.6; VY[o] = vy * fs * 1.6;
+        }
+      }
+      for (const d of drops) {
+        const life = clamp(1 - d.age / (d.dur * 2.2), 0, 1);
+        if (life <= 0) continue;
+        const push = 26 * life * life, spin = d.spin * life;
+        const x0 = Math.max(0, (d.x - 22) | 0), x1 = Math.min(GW - 1, (d.x + 22) | 0);
+        const y0 = Math.max(0, (d.y - 22) | 0), y1 = Math.min(GH - 1, (d.y + 22) | 0);
+        for (let j = y0; j <= y1; j++) {
+          for (let i = x0; i <= x1; i++) {
+            const dx = i - d.x, dy = j - d.y, r2 = dx * dx + dy * dy;
+            const f = 1 / (r2 * 0.03 + 1);
+            const fall = Math.exp(-r2 / 180);
+            const o = j * GW + i;
+            VX[o] += (dx * push * f * 0.12 - dy * spin * f * 0.1) * fall;
+            VY[o] += (dy * push * f * 0.12 + dx * spin * f * 0.1) * fall;
+          }
+        }
+      }
+      // Semi-Lagrangian advection of the dye.
+      const fade = Math.exp(-dt * 0.085);
+      for (let j = 0, o = 0; j < GH; j++) {
+        for (let i = 0; i < GW; i++, o++) {
+          let x = i - VX[o] * dt, y = j - VY[o] * dt;
+          x = x < 0 ? 0 : x > GW - 1.001 ? GW - 1.001 : x;
+          y = y < 0 ? 0 : y > GH - 1.001 ? GH - 1.001 : y;
+          const xi = x | 0, yi = y | 0, fx = x - xi, fy = y - yi;
+          const a = yi * GW + xi, b = a + 1, c = a + GW, e = c + 1;
+          const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+          R2[o] = (R[a] * w00 + R[b] * w10 + R[c] * w01 + R[e] * w11) * fade;
+          G2[o] = (G[a] * w00 + G[b] * w10 + G[c] * w01 + G[e] * w11) * fade;
+          B2[o] = (Bl[a] * w00 + Bl[b] * w10 + Bl[c] * w01 + Bl[e] * w11) * fade;
+        }
+      }
+      let s = R; R = R2; R2 = s; s = G; G = G2; G2 = s; s = Bl; Bl = B2; B2 = s;
+      // Inject ink while each drop is still blooming.
+      for (let n = drops.length - 1; n >= 0; n--) {
+        const d = drops[n];
+        d.age += dt;
+        if (d.age < d.dur) {
+          const p = d.age / d.dur;
+          const rad = d.size * (0.35 + 0.65 * Math.sqrt(p));
+          const amt = 1 - Math.exp(-dt * 7 * (1 - p));
+          const x0 = Math.max(0, (d.x - rad * 2) | 0), x1 = Math.min(GW - 1, (d.x + rad * 2) | 0);
+          const y0 = Math.max(0, (d.y - rad * 2) | 0), y1 = Math.min(GH - 1, (d.y + rad * 2) | 0);
+          const cr = d.c[0] / 255, cg = d.c[1] / 255, cb = d.c[2] / 255;
+          for (let j = y0; j <= y1; j++) {
+            for (let i = x0; i <= x1; i++) {
+              const dx = i - d.x, dy = j - d.y;
+              const k = amt * Math.exp(-(dx * dx + dy * dy) / (rad * rad));
+              const o = j * GW + i;
+              R[o] += (cr - R[o]) * k; G[o] += (cg - G[o]) * k; Bl[o] += (cb - Bl[o]) * k;
+            }
+          }
+        } else if (d.age > d.dur * 2.2) drops.splice(n, 1);
+      }
+      if (t > 1e5) t = 0;
+    }
+
+    function render() {
+      const d = img.d;
+      for (let o = 0, p = 0; o < N; o++, p += 4) {
+        const r = R[o], g = G[o], b = Bl[o];
+        const m = Math.max(r, g, b);
+        // Brighten concentrated ink, keep the "water" a deep blue-black.
+        const gain = m > 0.0005 ? Math.min(1, 1.8 * Math.pow(m, 0.55)) / m : 0;
+        d[p] = 4 + r * gain * 255;
+        d[p + 1] = 8 + g * gain * 255;
+        d[p + 2] = 18 + b * gain * 255;
+        d[p + 3] = 255;
+      }
+      present(img);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    for (let k = 0; k < 3; k++) { addDrop(); drops[k].age = 0.3 * k; }
+    requestAnimationFrame(frame);
+  </script>
+</body>

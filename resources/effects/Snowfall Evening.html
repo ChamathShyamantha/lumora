@@ -1,0 +1,126 @@
+<head>
+  <title>Snowfall Evening</title>
+  <meta description="Soft snow drifts down through a deep blue winter dusk, lit from below by the warm glow of a distant town." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="snow,snowfall,winter,christmas,evening,dusk,cozy,calm,holiday,blue" />
+  <meta property="snowAmount" label="Snow Amount" type="number" min="0" max="100" default="55" />
+  <meta property="wind" label="Wind" type="number" min="-100" max="100" default="20" tooltip="Negative blows left, positive blows right" />
+  <meta property="glowColor" label="Horizon Glow" type="color" default="#ff9a4a" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    function makeSprite(c) {
+      const s = document.createElement('canvas');
+      s.width = 32; s.height = 32;
+      const x = s.getContext('2d');
+      const g = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+      g.addColorStop(0, rgba(c, 1));
+      g.addColorStop(0.35, rgba(c, 0.75));
+      g.addColorStop(1, rgba(c, 0));
+      x.fillStyle = g;
+      x.fillRect(0, 0, 32, 32);
+      return s;
+    }
+    const white = makeSprite([235, 242, 255]);
+    let warm = null, warmKey = '';
+
+    const cfg = { amount: 55, wind: 20, glow: [255, 154, 74] };
+    function readProps() {
+      cfg.amount = clamp(num(get(() => snowAmount), 55), 0, 100);
+      cfg.wind = clamp(num(get(() => wind), 20), -100, 100);
+      const gc = String(get(() => glowColor, '#ff9a4a'));
+      cfg.glow = hexRgb(gc, '#ff9a4a');
+      const key = cfg.glow.join(',');
+      if (key !== warmKey) { warmKey = key; warm = makeSprite([255 * 0.5 + cfg.glow[0] * 0.5, 255 * 0.5 + cfg.glow[1] * 0.5, 255 * 0.5 + cfg.glow[2] * 0.5]); }
+    }
+    function onsnowAmountChanged() { readProps(); }
+    function onwindChanged() { readProps(); }
+    function onglowColorChanged() { readProps(); }
+
+    const MAX = 280;
+    const flakes = [];
+    function newFlake(top) {
+      const r = Math.random();
+      const d = r < 0.5 ? 0.15 + Math.random() * 0.3 : r < 0.85 ? 0.45 + Math.random() * 0.35 : 0.8 + Math.random() * 0.45;
+      return { x: Math.random() * (W + 80) - 40, y: top ? -10 - Math.random() * 30 : Math.random() * H, d, ph: Math.random() * 6.28, sw: 0.4 + Math.random() * 0.8 };
+    }
+    for (let i = 0; i < MAX; i++) flakes.push(newFlake(false));
+
+    let t = 0;
+    function update(dt) {
+      t += dt;
+      const gust = 1 + 0.45 * Math.sin(t * 0.21) + 0.2 * Math.sin(t * 0.53 + 1);
+      const wv = cfg.wind / 100 * 55 * gust;
+      for (const f of flakes) {
+        const fall = 10 + f.d * 34;
+        f.x += (wv * (0.4 + f.d * 0.8) + Math.sin(t * f.sw + f.ph) * 9 * f.d) * dt;
+        f.y += fall * dt;
+        if (f.y > H + 12) { Object.assign(f, newFlake(true)); }
+        if (f.x < -40) f.x += W + 80; else if (f.x > W + 40) f.x -= W + 80;
+      }
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const g = cfg.glow;
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, '#040824');
+      sky.addColorStop(0.45, '#0b1a52');
+      sky.addColorStop(0.78, '#1d2f78');
+      sky.addColorStop(1, rgba([g[0] * 0.45 + 40, g[1] * 0.45 + 30, g[2] * 0.45 + 60], 1));
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+      // warm light of a far-off town, breathing very slowly
+      const br = 0.85 + 0.15 * Math.sin(t * 0.25);
+      ctx.save();
+      ctx.translate(160, 212);
+      ctx.scale(1.9, 1);
+      const hg = ctx.createRadialGradient(0, 0, 0, 0, 0, 120);
+      hg.addColorStop(0, rgba(g, 0.95 * br));
+      hg.addColorStop(0.35, rgba(g, 0.5 * br));
+      hg.addColorStop(1, rgba(g, 0));
+      ctx.fillStyle = hg;
+      ctx.fillRect(-120, -120, 240, 240);
+      ctx.restore();
+      const n = Math.round(cfg.amount / 100 * MAX);
+      // far flakes first, closest last
+      const list = flakes.slice(0, n).sort((a, b) => a.d - b.d);
+      for (const f of list) {
+        const size = 3 + f.d * 11 + (f.d > 1 ? (f.d - 1) * 40 : 0);
+        const a = f.d > 1 ? 0.75 - (f.d - 1) * 1.6 : 0.3 + f.d * 0.55;
+        const k = clamp((f.y - 110) / 90, 0, 1) * 0.85;
+        if (1 - k > 0.02) { ctx.globalAlpha = clamp(a * (1 - k), 0, 1); ctx.drawImage(white, f.x - size / 2, f.y - size / 2, size, size); }
+        if (k > 0.02 && warm) { ctx.globalAlpha = clamp(a * k, 0, 1); ctx.drawImage(warm, f.x - size / 2, f.y - size / 2, size, size); }
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

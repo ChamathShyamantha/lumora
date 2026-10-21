@@ -1,0 +1,189 @@
+<head>
+  <title>Glacier Light</title>
+  <meta description="Deep inside a blue glacier: slow refracted light bands drift through ancient ice, catching faint glints along hairline cracks." />
+  <meta publisher="Lumora" />
+  <meta category="Nature" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="nature,ice,glacier,cave,frozen,winter,blue,cold,crystal,light,calm,serene" />
+  <meta property="iceTint" label="Ice Tint" type="color" default="#2f9bff" />
+  <meta property="driftSpeed" label="Light Drift" type="number" min="1" max="100" default="30" />
+  <meta property="brightness" label="Brightness" type="number" min="1" max="100" default="70" />
+  <meta property="glints" label="Crack Glints" type="number" min="0" max="100" default="55" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const fin = (v) => (isFinite(v) ? v : 0);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(fin(c[0]), 0, 255) | 0) + ',' + (clamp(fin(c[1]), 0, 255) | 0) + ',' + (clamp(fin(c[2]), 0, 255) | 0) + ',' + clamp(fin(a), 0, 1).toFixed(3) + ')';
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+    const PERM = new Uint8Array(512);
+    (function () {
+      const p = []; let s = 7331;
+      for (let i = 0; i < 256; i++) p[i] = i;
+      for (let i = 255; i > 0; i--) { s = (s * 16807) % 2147483647; const j = s % (i + 1); const tmp = p[i]; p[i] = p[j]; p[j] = tmp; }
+      for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+    })();
+    function vnoise(x, y) {
+      let xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      xi &= 255; yi &= 255;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = PERM[PERM[xi] + yi], b = PERM[PERM[xi + 1] + yi], c = PERM[PERM[xi] + yi + 1], d = PERM[PERM[xi + 1] + yi + 1];
+      const top = a + (b - a) * u, bot = c + (d - c) * u;
+      return (top + (bot - top) * v) / 255;
+    }
+    const fbm = (x, y) => 0.6 * vnoise(x, y) + 0.4 * vnoise(x * 2.1 + 13.7, y * 2.1 + 2.9);
+
+    const BW = 80, BH = 50, SX = W / BW, SY = H / BH;
+    const B = buffer(BW, BH);
+    const cfg = { tint: [47, 155, 255], speed: 30, bright: 70, glints: 55 };
+    let t = 0;
+
+    // light shafts: angle of travel, period (px), weight
+    const BANDS = [[1.05, 120, 1.0], [1.35, 75, 0.6], [0.8, 170, 0.75]];
+
+    function readProps() {
+      cfg.tint = hexRgb(get(() => iceTint, '#2f9bff'), '#2f9bff');
+      cfg.speed = clamp(num(get(() => driftSpeed), 30), 0, 100);
+      cfg.bright = clamp(num(get(() => brightness), 70), 1, 100);
+      cfg.glints = clamp(num(get(() => glints), 55), 0, 100);
+    }
+    function oniceTintChanged() { readProps(); }
+    function ondriftSpeedChanged() { readProps(); }
+    function onbrightnessChanged() { readProps(); }
+    function onglintsChanged() { readProps(); }
+
+    // refracted light intensity at a point (also used to light up the cracks)
+    function lightAt(x, y) {
+      const warp = 2.2 * fbm(x * 0.008 + t * 0.03, y * 0.012 - t * 0.02);
+      let L = 0;
+      for (let k = 0; k < BANDS.length; k++) {
+        const b = BANDS[k];
+        const proj = x * Math.cos(b[0]) + y * Math.sin(b[0]);
+        const s = 0.5 + 0.5 * Math.cos((proj / b[1] - t * (0.08 + k * 0.03)) * Math.PI * 2 + warp * (1 + k * 0.4));
+        const s2 = s * s;
+        L += b[2] * s2 * s2;
+      }
+      // light enters from the surface above, fading deeper down
+      return L / 2.35 * (0.6 + 0.75 * (1 - y / H));
+    }
+
+    // hairline cracks frozen into the ice; each one slowly fades out and is replaced
+    const cracks = [];
+    function makeCrack(c) {
+      c = c || {};
+      const pts = [];
+      let x = 20 + Math.random() * 280, y = 15 + Math.random() * 170;
+      let a = Math.random() * Math.PI * 2;
+      const n = 4 + ((Math.random() * 4) | 0);
+      pts.push([x, y]);
+      for (let i = 0; i < n; i++) {
+        a += (Math.random() - 0.5) * 1.3;
+        const len = 7 + Math.random() * 12;
+        x += Math.cos(a) * len; y += Math.sin(a) * len;
+        pts.push([x, y]);
+      }
+      c.pts = pts;
+      c.life = 0;
+      c.span = 18 + Math.random() * 20;
+      c.ph = Math.random() * 10;
+      return c;
+    }
+    for (let i = 0; i < 6; i++) { const c = makeCrack(); c.life = Math.random() * c.span; cracks.push(c); }
+
+    function update(dt) {
+      t += dt * (0.12 + cfg.speed * 0.03);
+      if (t > 1e5) t = 0;
+      for (const c of cracks) {
+        c.life += dt;
+        if (c.life > c.span) makeCrack(c);
+      }
+    }
+
+    function render() {
+      const d = B.d, tint = cfg.tint;
+      const gain = 0.45 + cfg.bright / 100 * 0.8;
+      const deep = [tint[0] * 0.04 + 1, tint[1] * 0.08 + 6, tint[2] * 0.18 + 22];
+      const body = [tint[0] * 0.35, tint[1] * 0.55 + 10, tint[2] * 0.75 + 30];
+      const shine = [tint[0] * 0.3 + 90, tint[1] * 0.3 + 170, tint[2] * 0.15 + 215];
+      let o = 0;
+      for (let j = 0; j < BH; j++) {
+        const y = (j + 0.5) * SY;
+        for (let i = 0; i < BW; i++, o += 4) {
+          const x = (i + 0.5) * SX;
+          // compressed annual layers in the ice, gently folded
+          const fold = fbm(x * 0.01 + 4, y * 0.015);
+          const strata = 0.5 + 0.5 * Math.sin(y * 0.07 + fold * 5 + x * 0.004);
+          const cloudy = fbm(x * 0.03 - t * 0.01, y * 0.04 + 9);
+          const base = 0.2 + 0.4 * strata * strata * strata + 0.3 * cloudy;
+          const L = lightAt(x, y);
+          const L2 = L * L * 1.6;
+          d[o] = (deep[0] + body[0] * base * 0.5 + body[0] * L * 0.9 + shine[0] * L2) * gain;
+          d[o + 1] = (deep[1] + body[1] * base * 0.5 + body[1] * L * 0.9 + shine[1] * L2) * gain;
+          d[o + 2] = (deep[2] + body[2] * base * 0.5 + body[2] * L * 0.9 + shine[2] * L2) * gain;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+
+      // cracks glint where the moving light catches them
+      const gk = cfg.glints / 100;
+      if (gk <= 0) return;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      for (const c of cracks) {
+        const env = Math.min(1, c.life / 3, (c.span - c.life) / 3);
+        const mid = c.pts[(c.pts.length / 2) | 0];
+        const L = lightAt(mid[0], mid[1]);
+        const twinkle = 0.75 + 0.25 * Math.sin(t * 3 + c.ph);
+        const a = clamp(env * gk * (0.08 + 1.4 * L * L) * twinkle, 0, 1);
+        if (a < 0.01) continue;
+        const passes = [[14, 0.14, [120, 210, 255]], [6, 0.3, [160, 225, 255]], [2, 0.6, [235, 250, 255]]];
+        for (const p of passes) {
+          ctx.lineWidth = p[0];
+          ctx.strokeStyle = rgba(p[2], a * p[1]);
+          ctx.beginPath();
+          ctx.moveTo(c.pts[0][0], c.pts[0][1]);
+          for (let i = 1; i < c.pts.length; i++) ctx.lineTo(c.pts[i][0], c.pts[i][1]);
+          ctx.stroke();
+        }
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

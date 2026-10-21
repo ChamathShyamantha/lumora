@@ -1,0 +1,187 @@
+<head>
+  <title>Turing Patterns</title>
+  <meta description="A living reaction–diffusion chemistry grows coral, spots and labyrinths that slowly spread and renew themselves." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="reaction diffusion,gray-scott,turing,coral,maze,spots,organic,growth,generative,science" />
+  <meta property="patternType" label="Pattern" type="combobox" values="Coral,Spots,Maze" default="Coral" />
+  <meta property="colorRamp" label="Colour Ramp" type="combobox" values="Deep Sea,Glacier,Bioluminescent,Amethyst,Ember" default="Deep Sea" />
+  <meta property="growthSpeed" label="Growth Speed" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    // Gray-Scott feed / kill rates for each look.
+    const PARAMS = { Coral: [0.0545, 0.062], Spots: [0.0367, 0.0649], Maze: [0.029, 0.057] };
+    const RAMPS = {
+      'Deep Sea': [[0, 6, 22], [0, 40, 95], [0, 130, 210], [40, 225, 255], [225, 255, 255]],
+      'Glacier': [[4, 6, 24], [30, 50, 140], [90, 150, 255], [175, 215, 255], [255, 255, 255]],
+      'Bioluminescent': [[0, 8, 12], [0, 70, 60], [0, 200, 150], [90, 255, 210], [220, 255, 245]],
+      'Amethyst': [[8, 0, 20], [55, 0, 120], [150, 50, 255], [220, 150, 255], [255, 235, 255]],
+      'Ember': [[14, 2, 0], [110, 15, 0], [255, 90, 0], [255, 190, 60], [255, 250, 210]]
+    };
+    const LUT = new Uint8ClampedArray(256 * 3);
+    let lutName = null;
+    function buildLut(name) {
+      const st = RAMPS[name];
+      for (let i = 0; i < 256; i++) {
+        const t = (i / 255) * (st.length - 1), k = Math.min(st.length - 2, t | 0), f = t - k;
+        for (let c = 0; c < 3; c++) LUT[i * 3 + c] = st[k][c] + (st[k + 1][c] - st[k][c]) * f;
+      }
+      lutName = name;
+    }
+
+    const GW = 80, GH = 50, N = GW * GH;
+    let U = new Float32Array(N), V = new Float32Array(N), U2 = new Float32Array(N), V2 = new Float32Array(N);
+    const SNAP = new Float32Array(N);
+    const IM = new Int32Array(GW), IP = new Int32Array(GW);
+    for (let i = 0; i < GW; i++) { IM[i] = (i + GW - 1) % GW; IP[i] = (i + 1) % GW; }
+    let seed = 99;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+
+    const img = buffer(GW, GH);
+    const cfg = { type: 'Coral', ramp: 'Deep Sea', speed: 50 };
+    let acc = 0, checkTimer = 0, still = 0, fade = 0, fadeDir = 1, stepsSince = 0, life = 0;
+
+    function readProps() {
+      const p = String(get(() => patternType, 'Coral'));
+      const np = PARAMS[p] ? p : 'Coral';
+      if (np !== cfg.type) { cfg.type = np; still = 0; }
+      const r = String(get(() => colorRamp, 'Deep Sea'));
+      cfg.ramp = RAMPS[r] ? r : 'Deep Sea';
+      if (lutName !== cfg.ramp) buildLut(cfg.ramp);
+      cfg.speed = clamp(num(get(() => growthSpeed), 50), 0, 100);
+    }
+    function onpatternTypeChanged() { readProps(); }
+    function oncolorRampChanged() { readProps(); }
+    function ongrowthSpeedChanged() { readProps(); }
+
+    function reseed() {
+      U.fill(1); V.fill(0);
+      const n = 2 + ((rnd() * 3) | 0);
+      for (let s = 0; s < n; s++) {
+        const cx = rnd() * GW, cy = rnd() * GH, r = 2 + rnd() * 3;
+        for (let j = -6; j <= 6; j++) {
+          for (let i = -6; i <= 6; i++) {
+            if (i * i + j * j > r * r) continue;
+            const x = (((cx + i) | 0) + GW) % GW, y = (((cy + j) | 0) + GH) % GH;
+            const o = y * GW + x;
+            U[o] = 0.5 + rnd() * 0.1; V[o] = 0.25 + rnd() * 0.1;
+          }
+        }
+      }
+      SNAP.set(V);
+      still = 0; fade = 0; fadeDir = 1; life = 0; stepsSince = 0;
+    }
+
+    function step(F, K) {
+      for (let j = 0; j < GH; j++) {
+        const r0 = j * GW, rm = ((j + GH - 1) % GH) * GW, rp = ((j + 1) % GH) * GW;
+        for (let i = 0; i < GW; i++) {
+          const o = r0 + i, im = IM[i], ip = IP[i];
+          const u = U[o], v = V[o];
+          const lu = 0.2 * (U[r0 + im] + U[r0 + ip] + U[rm + i] + U[rp + i]) + 0.05 * (U[rm + im] + U[rm + ip] + U[rp + im] + U[rp + ip]) - u;
+          const lv = 0.2 * (V[r0 + im] + V[r0 + ip] + V[rm + i] + V[rp + i]) + 0.05 * (V[rm + im] + V[rm + ip] + V[rp + im] + V[rp + ip]) - v;
+          const uvv = u * v * v;
+          U2[o] = u + lu - uvv + F * (1 - u);
+          V2[o] = v + 0.5 * lv + uvv - (F + K) * v;
+        }
+      }
+      let s = U; U = U2; U2 = s; s = V; V = V2; V2 = s;
+    }
+
+    function update(dt) {
+      const pr = PARAMS[cfg.type];
+      const rate = 12 + cfg.speed * 2.2; // simulation steps per second
+      acc += dt * rate;
+      let n = Math.floor(acc);
+      acc -= n;
+      if (n > 12) n = 12;
+      for (let k = 0; k < n; k++) step(pr[0], pr[1]);
+      stepsSince += n;
+      life += dt;
+
+      // Fade the old pattern out before a reseed, then let the new one grow in.
+      if (fadeDir < 0) {
+        fade -= dt * 0.8;
+        if (fade <= 0) reseed();
+        return;
+      }
+      fade = Math.min(1, fade + dt * 1.5);
+      checkTimer += dt;
+      if (checkTimer >= 1) {
+        checkTimer = 0;
+        let diff = 0, total = 0;
+        for (let o = 0; o < N; o++) { diff += Math.abs(V[o] - SNAP[o]); total += V[o]; }
+        SNAP.set(V);
+        // Average change per simulation step; a settled pattern barely moves.
+        const perStep = diff / N / Math.max(1, stepsSince);
+        stepsSince = 0;
+        if (total < 1) still += 10; // died out
+        else if (perStep < 1.4e-5) still++;
+        else still = 0;
+        if (still >= 5 || life > 75) { fadeDir = -1; still = 0; }
+      }
+    }
+
+    function render() {
+      const d = img.d;
+      const gain = 2.5 * fade;
+      for (let j = 0, p = 0; j < GH; j++) {
+        const rm = ((j + GH - 1) % GH) * GW, rp = ((j + 1) % GH) * GW, r0 = j * GW;
+        for (let i = 0; i < GW; i++, p += 4) {
+          const v = V[r0 + i];
+          let s = v * gain;
+          s = s > 1 ? 1 : s < 0 ? 0 : s;
+          // Light from the upper left gives the growth a soft, raised look.
+          let lit = (V[rm + IM[i]] - V[rp + IP[i]]) * 5 * fade;
+          lit = lit > 0.6 ? 0.6 : lit < -0.4 ? -0.4 : lit;
+          const li = ((s * 255) | 0) * 3;
+          const k = 1 + lit * 0.6, wh = lit > 0 ? lit * 120 : 0;
+          d[p] = LUT[li] * k + wh;
+          d[p + 1] = LUT[li + 1] * k + wh;
+          d[p + 2] = LUT[li + 2] * k + wh;
+          d[p + 3] = 255;
+        }
+      }
+      present(img);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    reseed();
+    requestAnimationFrame(frame);
+  </script>
+</body>

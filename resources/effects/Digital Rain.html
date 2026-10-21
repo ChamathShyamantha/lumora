@@ -1,0 +1,95 @@
+<head>
+  <title>Digital Rain</title>
+  <meta description="Cascading columns of code falling down your setup with glowing trails." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="tech,hacker,rain" />
+  <meta property="color" label="Color" type="color" default="#00ff46" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+  <meta property="density" label="Density" type="number" min="1" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+
+    const CELL = 10, COLS = W / CELL, ROWS = H / CELL;
+    const cfg = { rgb: [0, 255, 70], speed: 50, density: 50 };
+    const drops = [];
+
+    function readProps() {
+      cfg.rgb = hexRgb(get(() => color, '#00ff46'), '#00ff46');
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.density = clamp(num(get(() => density), 50), 1, 100);
+    }
+    function oncolorChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function ondensityChanged() { readProps(); }
+
+    function reset(d, initial) {
+      d.len = 5 + Math.random() * 9;
+      d.v = 7 + Math.random() * 12; // rows per second
+      d.bright = 0.55 + Math.random() * 0.45;
+      d.y = initial ? Math.random() * (ROWS + d.len) : -1;
+      d.wait = initial ? 0 : Math.random() * (3.6 - cfg.density * 0.034);
+    }
+    for (let i = 0; i < COLS; i++) { const d = {}; reset(d, true); drops.push(d); }
+
+    function update(dt) {
+      const k = 0.2 + cfg.speed / 50 * 0.8;
+      for (const d of drops) {
+        if (d.wait > 0) { d.wait -= dt; continue; }
+        d.y += d.v * k * dt;
+        if (d.y - d.len > ROWS) reset(d, false);
+      }
+    }
+
+    function render() {
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      const c = cfg.rgb;
+      const head = [c[0] + (255 - c[0]) * 0.6, c[1] + (255 - c[1]) * 0.6, c[2] + (255 - c[2]) * 0.6];
+      for (let i = 0; i < COLS; i++) {
+        const d = drops[i];
+        if (d.wait > 0) continue;
+        const x = i * CELL;
+        const bottom = (d.y + 1) * CELL, top = (d.y - d.len) * CELL;
+        const g = ctx.createLinearGradient(0, top, 0, bottom);
+        g.addColorStop(0, rgba(c, 0));
+        g.addColorStop(0.7, rgba(c, 0.5 * d.bright));
+        g.addColorStop(1, rgba(c, d.bright));
+        ctx.fillStyle = g;
+        ctx.fillRect(x, top, CELL, bottom - top);
+        ctx.fillStyle = rgba(head, d.bright);
+        ctx.fillRect(x, d.y * CELL, CELL, CELL);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

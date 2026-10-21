@@ -1,0 +1,213 @@
+<head>
+  <title>Living Cells</title>
+  <meta description="Soft pastel cells drift, divide and merge beneath a glowing web of membranes." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="calm" />
+  <meta palette="pastel" />
+  <meta tags="voronoi,cells,organic,biology,membrane,mitosis,soft,relaxing,generative" />
+  <meta property="cellCount" label="Cell Count" type="number" min="4" max="24" step="1" default="11" />
+  <meta property="wallGlow" label="Wall Glow" type="number" min="0" max="100" default="60" tooltip="Brightness and width of the glowing cell walls" />
+  <meta property="colorScheme" label="Colour Scheme" type="combobox" values="Pastel,Lagoon,Blossom,Mint,Dusk" default="Pastel" />
+  <meta property="driftSpeed" label="Drift Speed" type="number" min="1" max="100" default="35" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+    function hsl(h, s, l, out, o) {
+      h = (h - Math.floor(h)) * 6;
+      const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h % 2) - 1)), m = l - c / 2;
+      let r, g, b;
+      if (h < 1) { r = c; g = x; b = 0; } else if (h < 2) { r = x; g = c; b = 0; } else if (h < 3) { r = 0; g = c; b = x; }
+      else if (h < 4) { r = 0; g = x; b = c; } else if (h < 5) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+      out[o] = (r + m) * 255; out[o + 1] = (g + m) * 255; out[o + 2] = (b + m) * 255;
+    }
+
+    // Each scheme maps a cell's 0..1 gene to a hue range (start, span) with pastel saturation.
+    const SCHEMES = {
+      Pastel: [0, 1, 0.75], Lagoon: [0.44, 0.22, 0.8], Blossom: [0.83, 0.25, 0.8], Mint: [0.25, 0.25, 0.75], Dusk: [0.62, 0.3, 0.8]
+    };
+    const MAXC = 30;
+    const cells = [];
+    let seed = 1;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    function makeCell(x, y, gene, w) {
+      return { x, y, vx: 0, vy: 0, w, gene, dir: rnd() * 6.283, wob: rnd() * 100, dying: false, partner: null };
+    }
+
+    const B = buffer(128, 80);
+    const cfg = { count: 11, glow: 60, scheme: 'Pastel', speed: 35 };
+    const col = new Float32Array(MAXC * 3);
+    let eventTimer = 2, t = 0;
+
+    function readProps() {
+      cfg.count = Math.round(clamp(num(get(() => cellCount), 11), 4, 24));
+      cfg.glow = clamp(num(get(() => wallGlow), 60), 0, 100);
+      const s = String(get(() => colorScheme, 'Pastel'));
+      cfg.scheme = SCHEMES[s] ? s : 'Pastel';
+      cfg.speed = clamp(num(get(() => driftSpeed), 35), 0, 100);
+    }
+    function oncellCountChanged() { readProps(); }
+    function onwallGlowChanged() { readProps(); }
+    function oncolorSchemeChanged() { readProps(); }
+    function ondriftSpeedChanged() { readProps(); }
+
+    function populate() {
+      while (cells.length < cfg.count) cells.push(makeCell(20 + rnd() * 280, 15 + rnd() * 170, rnd(), 1));
+    }
+
+    function divide() {
+      const live = cells.filter((c) => !c.dying);
+      if (!live.length || cells.length >= MAXC) return;
+      const p = live[(rnd() * live.length) | 0];
+      const a = rnd() * 6.283;
+      const g = p.gene + (rnd() - 0.5) * 0.25;
+      const ch = makeCell(p.x + Math.cos(a) * 2, p.y + Math.sin(a) * 2, g - Math.floor(g), 0.04);
+      ch.vx = Math.cos(a) * 18; ch.vy = Math.sin(a) * 18;
+      p.vx -= Math.cos(a) * 10; p.vy -= Math.sin(a) * 10;
+      cells.push(ch);
+    }
+    function merge() {
+      const live = cells.filter((c) => !c.dying && c.w > 0.8);
+      if (live.length < 3) return;
+      const a = live[(rnd() * live.length) | 0];
+      let best = null, bd = 1e9;
+      for (const b of live) {
+        if (b === a) continue;
+        const d = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+        if (d < bd) { bd = d; best = b; }
+      }
+      a.dying = true; a.partner = best;
+    }
+
+    function update(dt) {
+      const sp = 0.15 + cfg.speed * 0.022;
+      t += dt * sp;
+      populate();
+      // Life cycle: divide while below the target, merge while above it, so the colony keeps breathing.
+      eventTimer -= dt * sp;
+      if (eventTimer <= 0) {
+        const live = cells.filter((c) => !c.dying).length;
+        if (live > cfg.count) merge(); else divide();
+        eventTimer = 1.6 + rnd() * 1.6;
+      }
+      let live = 0;
+      for (const c of cells) if (!c.dying) live++;
+      while (live > cfg.count + 2) { const c = cells.find((k) => !k.dying); c.dying = true; c.partner = null; live--; }
+
+      const R = Math.sqrt((W * H) / Math.max(4, cells.length)) * 1.1;
+      for (let i = 0; i < cells.length; i++) {
+        const a = cells[i];
+        a.dir += Math.sin(t * 0.7 + a.wob) * dt * sp * 1.4;
+        let fx = Math.cos(a.dir) * 9, fy = Math.sin(a.dir) * 9;
+        for (let j = 0; j < cells.length; j++) {
+          if (i === j) continue;
+          const b = cells[j];
+          if (a.partner === b || b.partner === a) continue;
+          const dx = a.x - b.x, dy = a.y - b.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+          if (d < R) { const f = ((R - d) / R) * 60 * Math.min(1, b.w + 0.2); fx += (dx / d) * f; fy += (dy / d) * f; }
+        }
+        // Soft container keeps every nucleus well inside the canvas.
+        fx += (160 - a.x) * 0.03; fy += (100 - a.y) * 0.03;
+        if (a.x < 30) fx += (30 - a.x) * 5;
+        if (a.x > W - 30) fx -= (a.x - W + 30) * 5;
+        if (a.y < 22) fy += (22 - a.y) * 5;
+        if (a.y > H - 22) fy -= (a.y - H + 22) * 5;
+        if (a.dying && a.partner) { fx += (a.partner.x - a.x) * 2.5; fy += (a.partner.y - a.y) * 2.5; }
+        const damp = Math.exp(-dt * 2.2);
+        a.vx = a.vx * damp + fx * dt * sp;
+        a.vy = a.vy * damp + fy * dt * sp;
+      }
+      for (let i = cells.length - 1; i >= 0; i--) {
+        const a = cells[i];
+        a.x = clamp(a.x + a.vx * dt * sp, -10, W + 10);
+        a.y = clamp(a.y + a.vy * dt * sp, -10, H + 10);
+        if (a.dying) {
+          a.w *= Math.exp(-dt * sp * 1.3);
+          if (a.partner && cells.indexOf(a.partner) < 0) a.partner = null;
+          if (a.w < 0.03) cells.splice(i, 1);
+        } else {
+          a.w += (1 - a.w) * (1 - Math.exp(-dt * sp * 1.1));
+          a.gene += dt * 0.004;
+          if (a.gene > 1) a.gene -= 1;
+        }
+      }
+      if (t > 1e5) t = 0;
+    }
+
+    function render() {
+      const n = cells.length;
+      const sc = SCHEMES[cfg.scheme];
+      for (let k = 0; k < n; k++) {
+        const g = cells[k].gene;
+        const tri = g < 0.5 ? g * 2 : 2 - g * 2; // ping-pong keeps narrow ranges seamless
+        hsl(sc[0] + (sc[1] >= 1 ? g : tri * sc[1]), sc[2], 0.66, col, k * 3);
+      }
+      const glow = cfg.glow / 100;
+      const wallW = 1.5 + glow * 6;
+      const inv2 = 1 / (wallW * wallW);
+      const wallAmp = 0.25 + glow * 0.95;
+      const R = Math.sqrt((W * H) / Math.max(4, n)) * 0.55;
+      const d = B.d, bw = B.w, bh = B.h, sx = W / bw, sy = H / bh;
+      let o = 0;
+      for (let j = 0; j < bh; j++) {
+        const y = (j + 0.5) * sy;
+        for (let i = 0; i < bw; i++, o += 4) {
+          const x = (i + 0.5) * sx;
+          let q1 = 1e12, q2 = 1e12, k1 = 0, k2 = 0;
+          for (let k = 0; k < n; k++) {
+            const c = cells[k];
+            const dx = x - c.x, dy = y - c.y;
+            const q = (dx * dx + dy * dy) / (c.w * c.w);
+            if (q < q1) { q2 = q1; k2 = k1; q1 = q; k1 = k; } else if (q < q2) { q2 = q; k2 = k; }
+          }
+          const d1 = Math.sqrt(q1), e = Math.sqrt(q2) - d1;
+          const wall = Math.exp(-e * e * inv2) * wallAmp;
+          const nuc = Math.max(0, 1 - d1 / R);
+          const fill = 0.3 + 0.45 * nuc * nuc;
+          const a = k1 * 3, b = k2 * 3;
+          const wr = (col[a] + col[b]) * 0.5, wg = (col[a + 1] + col[b + 1]) * 0.5, wb = (col[a + 2] + col[b + 2]) * 0.5;
+          d[o] = col[a] * fill + (wr + 40) * wall;
+          d[o + 1] = col[a + 1] * fill + (wg + 40) * wall;
+          d[o + 2] = col[a + 2] * fill + (wb + 40) * wall;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    populate();
+    requestAnimationFrame(frame);
+  </script>
+</body>

@@ -1,0 +1,254 @@
+<head>
+  <title>Chomp Chase</title>
+  <meta description="A hungry snap-box chomper gobbles dots down a glowing corridor with a gang of blob ghosts on its tail, until a power pellet turns the tables." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="warm" />
+  <meta tags="arcade,chomp,ghosts,chase,dots,maze,pellet,game,80s,retro" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+  <meta property="chomperColor" label="Chomper Color" type="color" default="#36e7ff" />
+  <meta property="corridorGlow" label="Corridor Glow" type="number" min="0" max="100" default="60" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const floorBright = (c, m) => { const mx = Math.max(c[0], c[1], c[2]); return mx >= m ? c : mx === 0 ? [m, m, m] : c.map((v) => v * m / mx); };
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    const cfg = { speed: 50, chomp: [255, 210, 31], glow: 60 };
+    function readProps() {
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.chomp = floorBright(hexRgb(get(() => chomperColor, '#36e7ff'), '#36e7ff'), 130);
+      cfg.glow = clamp(num(get(() => corridorGlow), 60), 0, 100);
+    }
+    function onspeedChanged() { readProps(); }
+    function onchomperColorChanged() { readProps(); }
+    function oncorridorGlowChanged() { readProps(); }
+
+    const CY = 100, TOP = 44, BOT = 156, CR = 25, GWD = 44, GHT = 46;
+    const WALL = [255, 96, 36];
+    const GHOSTS = [[255, 40, 150], [170, 80, 255], [90, 255, 70], [40, 220, 255]];
+    const SCARED = [40, 70, 255];
+    const DOTS = [];
+    for (let x = 10; x < W; x += 20) DOTS.push({ x, on: true, pop: 0 });
+
+    const S = { phase: 'run', t: 0, dir: 1, cx: -40, mouth: 0, ghosts: [], parts: [], pellet: { x: 300, on: true }, flash: 0, rounds: 0, refill: 0 };
+
+    function startRound() {
+      S.dir = -S.dir;
+      const d = S.dir;
+      S.phase = 'run'; S.t = 0;
+      S.cx = d > 0 ? -40 : W + 40;
+      S.pellet.x = d > 0 ? W - 22 : 22; S.pellet.on = true;
+      S.ghosts = GHOSTS.map((col, i) => ({ x: S.cx - d * (78 + i * 52 + rand(-8, 8)), col, scared: false, eaten: false, eyes: false, vx: 0, sp: rand(1.08, 1.16), bob: rand(0, 6) }));
+      for (const dot of DOTS) if (Math.abs(dot.x - S.pellet.x) < 14) dot.on = false;
+      S.rounds++;
+    }
+
+    function burst(x, y, col, n) {
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, Math.PI * 2), s = rand(40, 140);
+        S.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.35, 0.8), col });
+      }
+    }
+
+    function update(dt) {
+      const v = 45 + cfg.speed * 1.3;
+      S.t += dt;
+      S.mouth += dt * (S.phase === 'reset' ? 0 : 9 + v / 30);
+      S.flash = Math.max(0, S.flash - dt * 2.5);
+      const d = S.dir;
+      if (S.phase === 'run') {
+        S.cx += d * v * dt;
+        for (const g of S.ghosts) g.x += d * v * g.sp * dt;
+        for (const dot of DOTS) if (dot.on && Math.abs(dot.x - S.cx) < 8) { dot.on = false; S.parts.push({ x: dot.x, y: CY, vx: d * 30, vy: 0, life: 0.2, col: [255, 240, 200] }); }
+        // caught from behind? the chomper is spared: the ghost just bumps and backs off
+        for (const g of S.ghosts) if ((S.cx - g.x) * d < 40) g.x = S.cx - d * 40;
+        if (S.pellet.on && (S.pellet.x - S.cx) * d < 6) {
+          S.pellet.on = false;
+          S.phase = 'power'; S.t = 0; S.flash = 1;
+          burst(S.pellet.x, CY, [255, 255, 255], 18);
+          for (const g of S.ghosts) { g.scared = true; g.sp = rand(0.5, 0.62); }
+        }
+      } else if (S.phase === 'power') {
+        // the chase reverses
+        S.cx -= d * v * 1.3 * dt;
+        for (const g of S.ghosts) {
+          if (g.eyes) continue;
+          g.x -= d * v * g.sp * dt;
+          if (Math.abs(g.x - S.cx) < CR + 8) {
+            g.eyes = true; g.scared = false;
+            burst(g.x, CY, SCARED, 26);
+            burst(g.x, CY, g.col, 14);
+            burst(g.x, CY, [255, 255, 255], 8);
+            S.flash = Math.max(S.flash, 0.6);
+          }
+        }
+        const gone = (x) => x < -70 || x > W + 70;
+        if (gone(S.cx) && S.ghosts.every((g) => g.eyes || gone(g.x))) { S.phase = 'reset'; S.t = 0; S.refill = 0; }
+      } else if (S.phase === 'reset') {
+        // dots pop back in one after another
+        S.refill += dt * 24;
+        const order = d > 0 ? DOTS.slice().reverse() : DOTS;
+        for (let i = 0; i < order.length && i < S.refill; i++) if (!order[i].on) { order[i].on = true; order[i].pop = 1; }
+        if (S.t > 1.1) startRound();
+      }
+      if (S.t > 25) { S.phase = 'reset'; S.t = 0; S.refill = 0; } // safety net
+      for (const dot of DOTS) dot.pop = Math.max(0, dot.pop - dt * 3);
+      for (let i = S.parts.length - 1; i >= 0; i--) { const p = S.parts[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 1 - 2.5 * dt; p.vy *= 1 - 2.5 * dt; p.life -= dt; if (p.life <= 0) S.parts.splice(i, 1); }
+    }
+
+    function glow(x, y, r, col, a) {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(col, a)); g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    function drawGhost(g, clock) {
+      if (g.eyes) return; // popped
+      const x = g.x, y = CY + Math.sin(clock * 5 + g.bob) * 3;
+      const moveDir = S.phase === 'power' ? -S.dir : S.dir;
+      let body = g.col;
+      if (g.scared) {
+        const ending = S.phase === 'power' && (S.cx < 90 && S.dir > 0 || S.cx > W - 90 && S.dir < 0);
+        body = ending && Math.floor(clock * 8) % 2 ? [235, 235, 255] : SCARED;
+      }
+      glow(x, y, 48, body, 0.5);
+      // wobbly jelly blob, squashing as it bounces along
+      const r = g.scared ? 19 : 22, sq = 1 + 0.08 * Math.sin(clock * 9 + g.bob);
+      const shiver = g.scared ? Math.sin(clock * 60) * 1.5 : 0;
+      ctx.fillStyle = rgba(body, 1);
+      ctx.beginPath();
+      for (let k = 0; k <= 24; k++) {
+        const a = k / 24 * Math.PI * 2;
+        const rr = r * (1 + 0.09 * Math.sin(a * 3 + clock * 7 + g.bob) + 0.05 * Math.sin(a * 5 - clock * 4));
+        const px = x + shiver + Math.cos(a) * rr * sq, py = y + Math.sin(a) * rr / sq + (Math.sin(a) > 0 ? 3 : 0);
+        if (k) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+      // shine
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath(); ctx.ellipse(x - 8 + shiver, y - 10, 5, 3, -0.5, 0, Math.PI * 2); ctx.fill();
+      if (g.scared) {
+        // worried little dot eyes
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x - 7 + shiver, y - 2, 4, 4); ctx.fillRect(x + 3 + shiver, y - 2, 4, 4);
+        return;
+      }
+      for (const s of [-1, 1]) {
+        const ex = x + s * 6 + moveDir * 5, ey = y + 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(ex, ey, 4.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#140020';
+        ctx.beginPath(); ctx.arc(ex + moveDir * 1.8, ey + 0.5, 2.2, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+
+    let clock = 0;
+    function render() {
+      const gk = cfg.glow / 100, cc = cfg.chomp;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = rgba(mix(WALL, [0, 0, 0], 0.93 - gk * 0.08), 1);
+      ctx.fillRect(0, 0, W, H);
+      // corridor floor glow
+      const fl = ctx.createLinearGradient(0, TOP, 0, BOT);
+      fl.addColorStop(0, rgba(WALL, 0.08 + gk * 0.12));
+      fl.addColorStop(0.5, rgba(WALL, 0.02));
+      fl.addColorStop(1, rgba(WALL, 0.08 + gk * 0.12));
+      ctx.fillStyle = fl;
+      ctx.fillRect(0, TOP, W, BOT - TOP);
+      // outer blocks above and below the corridor
+      ctx.fillStyle = rgba(mix(WALL, [0, 0, 0], 0.75 - gk * 0.3), 1);
+      ctx.fillRect(0, 0, W, TOP - 14);
+      ctx.fillRect(0, BOT + 14, W, H - BOT - 14);
+      // double neon wall lines
+      ctx.globalCompositeOperation = 'lighter';
+      for (const y of [TOP - 12, TOP, BOT, BOT + 12]) {
+        ctx.fillStyle = rgba(WALL, 0.15 + gk * 0.25);
+        ctx.fillRect(0, y - 5, W, 10);
+        ctx.fillStyle = rgba(mix(WALL, [255, 255, 255], 0.25), 0.55 + gk * 0.45);
+        ctx.fillRect(0, y - 1.5, W, 3);
+      }
+      // dots + pellet
+      for (const dot of DOTS) {
+        if (!dot.on) continue;
+        const s = 6 + dot.pop * 6;
+        glow(dot.x, CY, 12 + dot.pop * 14, [255, 200, 150], 0.5);
+        ctx.fillStyle = '#ffe6c8';
+        ctx.fillRect(dot.x - s / 2, CY - s / 2, s, s);
+      }
+      if (S.pellet.on) {
+        const p = 0.6 + 0.4 * Math.sin(clock * 10);
+        glow(S.pellet.x, CY, 34, [255, 230, 200], 0.6 * p);
+        ctx.fillStyle = rgba([255, 240, 220], p);
+        ctx.beginPath(); ctx.arc(S.pellet.x, CY, 10, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      for (const g of S.ghosts) drawGhost(g, clock);
+      // chomper
+      if (S.phase !== 'reset') {
+        const face = S.phase === 'power' ? -S.dir : S.dir;
+        const m = (0.5 - 0.5 * Math.cos(S.mouth)) * 0.85 + 0.04;
+        ctx.globalCompositeOperation = 'lighter';
+        glow(S.cx, CY, 62, cc, S.phase === 'power' ? 0.7 : 0.5);
+        ctx.globalCompositeOperation = 'source-over';
+        // Original "snap box" chomper: two rounded jaws hinged at the back that snap open and shut.
+        const g = ctx.createLinearGradient(S.cx, CY - CR, S.cx, CY + CR);
+        g.addColorStop(0, rgba(mix(cc, [255, 255, 255], 0.5), 1));
+        g.addColorStop(1, rgba(cc, 1));
+        ctx.fillStyle = g;
+        const hingeX = S.cx - face * CR;
+        const open = m * 0.55;
+        for (const jaw of [-1, 1]) {
+          ctx.save();
+          ctx.translate(hingeX, CY);
+          ctx.rotate(jaw * face * open);
+          ctx.beginPath();
+          ctx.roundRect(face > 0 ? 0 : -CR * 2, jaw < 0 ? -CR : 1, CR * 2, CR - 1, CR * 0.35);
+          ctx.fill();
+          if (jaw < 0) {
+            ctx.fillStyle = rgba(mix(cc, [0, 0, 0], 0.8), 1);
+            ctx.fillRect(face * CR * 1.25 - 3, -CR * 0.62, 6, 6);
+            ctx.fillStyle = g;
+          }
+          ctx.restore();
+        }
+      }
+      ctx.globalCompositeOperation = 'lighter';
+      for (const p of S.parts) { ctx.fillStyle = rgba(p.col, p.life * 1.5); ctx.fillRect(p.x - 3, p.y - 3, 6, 6); }
+      ctx.globalCompositeOperation = 'source-over';
+      if (S.flash > 0.01) { ctx.fillStyle = rgba(S.phase === 'power' ? [80, 100, 255] : [255, 255, 255], S.flash * 0.3); ctx.fillRect(0, 0, W, H); }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      clock += dt;
+      readProps();
+      // fixed sub-steps keep collisions reliable at any frame rate
+      let rem = dt;
+      while (rem > 1e-6) { const h = Math.min(rem, 1 / 120); update(h); rem -= h; }
+      render();
+    }
+    readProps();
+    S.dir = -1;
+    startRound();
+    requestAnimationFrame(frame);
+  </script>
+</body>

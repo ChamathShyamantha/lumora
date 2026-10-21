@@ -1,0 +1,182 @@
+<head>
+  <title>Hyperspace Jump</title>
+  <meta description="Cruise through a quiet starfield until the stars stretch into blazing streaks, a white flash hurls you across the galaxy, and calm returns under a new sky." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="intense" />
+  <meta palette="cool" />
+  <meta tags="space,warp,hyperspace,lightspeed,starfield,sci-fi,flash,travel" />
+  <meta property="cycleLength" label="Cycle Length" type="number" min="6" max="40" default="12" tooltip="Seconds from one jump to the next" />
+  <meta property="starColor" label="Star Color" type="color" default="#a8dcff" />
+  <meta property="intensity" label="Intensity" type="number" min="1" max="100" default="75" tooltip="Brightness of the streaks and the jump flash" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, CX = 160, CY = 100, FOCAL = 80;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const toRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const css = (c, a) => 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp01(a).toFixed(3) + ')';
+    const mix = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+    function hueRgb(h) {
+      h = (h - Math.floor(h)) * 6;
+      return [clamp01(Math.abs(h - 3) - 1) * 255, clamp01(2 - Math.abs(h - 2)) * 255, clamp01(2 - Math.abs(h - 4)) * 255];
+    }
+
+    const cfg = { cycle: 12, star: [168, 220, 255], power: 0.75 };
+    function readProps() {
+      cfg.cycle = numIn(read(() => cycleLength, 12), 12, 6, 40);
+      cfg.star = toRgb(read(() => starColor, '#a8dcff'), 'a8dcff');
+      cfg.power = numIn(read(() => intensity, 75), 75, 1, 100) / 100;
+    }
+    function oncycleLengthChanged() { readProps(); }
+    function onstarColorChanged() { readProps(); }
+    function onintensityChanged() { readProps(); }
+
+    // ---- star field ----------------------------------------------------------
+    const COUNT = 200;
+    const stars = [];
+    function place(s, far) {
+      s.x = (Math.random() * 2 - 1) * 2.1;
+      s.y = (Math.random() * 2 - 1) * 1.35;
+      s.z = far ? 0.75 + Math.random() * 0.25 : 0.08 + Math.random() * 0.92;
+      s.tint = Math.random();
+      return s;
+    }
+    for (let i = 0; i < COUNT; i++) stars.push(place({}, false));
+
+    // each arrival reveals a different-coloured region of space
+    let hazeA = [40, 90, 255], hazeB = [150, 60, 255], blobs = [];
+    function newSky() {
+      const h = 0.48 + Math.random() * 0.2;
+      hazeA = hueRgb(h); hazeB = hueRgb(h + 0.04 + Math.random() * 0.05);
+      blobs = [];
+      for (let i = 0; i < 4; i++) blobs.push({ x: 30 + Math.random() * 260, y: 20 + Math.random() * 160, r: 90 + Math.random() * 80, c: i % 2 ? hazeB : hazeA });
+      for (const s of stars) place(s, false);
+    }
+    newSky();
+
+    // ---- cycle shape ---------------------------------------------------------
+    // 0..0.5 cruise, 0.5..0.8 spool-up, 0.8 flash, 0.8..1 decelerate into calm
+    function speedAt(p) {
+      if (p < 0.5) return 0.1;
+      if (p < 0.8) { const s = (p - 0.5) / 0.3; return 0.1 + 7 * s * s * s; }
+      const s = (p - 0.8) / 0.2;
+      return 0.1 + 7 * Math.exp(-s * 9);
+    }
+    function flashAt(p) {
+      if (p < 0.77) return 0;
+      if (p < 0.8) { const s = (p - 0.77) / 0.03; return s * s; }
+      return Math.exp(-(p - 0.8) * 32);
+    }
+
+    let clock = 0, prevPhase = 0, last = null;
+
+    function draw(p, v, flash) {
+      const k = cfg.power;
+      const warp = clamp01((v - 0.1) / 6);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+
+      // drifting coloured haze so the whole setup carries a soft glow
+      const calm = 1 - warp;
+      for (const b of blobs) {
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        g.addColorStop(0, css(b.c, 0.3 * calm + 0.06));
+        g.addColorStop(0.5, css(b.c, 0.1 * calm + 0.03));
+        g.addColorStop(1, css(b.c, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // tunnel walls: the edges light up as the jump builds
+      if (warp > 0.01) {
+        const wall = mix(hazeA, cfg.star, 0.5);
+        const g = ctx.createRadialGradient(CX, CY, 20, CX, CY, 200);
+        g.addColorStop(0, css(wall, 0));
+        g.addColorStop(0.55, css(wall, 0.25 * warp * (0.5 + k)));
+        g.addColorStop(1, css(hazeB, 0.55 * warp * (0.5 + k)));
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      // vanishing-point glow
+      const coreR = 30 + 90 * warp;
+      const cg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+      cg.addColorStop(0, css([255, 255, 255], 0.12 + 0.75 * warp * k));
+      cg.addColorStop(0.3, css(cfg.star, 0.1 + 0.45 * warp * k));
+      cg.addColorStop(1, css(cfg.star, 0));
+      ctx.fillStyle = cg;
+      ctx.fillRect(CX - coreR, CY - coreR, coreR * 2, coreR * 2);
+
+      // stars and streaks
+      ctx.lineCap = 'round';
+      const exposure = 0.012 + 0.05 * warp;
+      for (const s of stars) {
+        const hx = CX + s.x / s.z * FOCAL, hy = CY + s.y / s.z * FOCAL;
+        const near = clamp01(1.15 - s.z);
+        const col = mix(cfg.star, [255, 255, 255], s.tint * 0.5);
+        const zt = Math.min(1.4, s.z + v * exposure);
+        const tx = CX + s.x / zt * FOCAL, ty = CY + s.y / zt * FOCAL;
+        const len = Math.hypot(hx - tx, hy - ty);
+        if (len > 2.5) {
+          const a = (0.3 + 0.7 * near) * (0.55 + 0.45 * k);
+          ctx.strokeStyle = css(col, a * 0.22);
+          ctx.lineWidth = 3 + 6 * near * (0.6 + k);
+          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+          ctx.strokeStyle = css(col, a);
+          ctx.lineWidth = 1 + 2.2 * near;
+          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(hx, hy); ctx.stroke();
+        } else {
+          const r = 2.5 + 7 * near * near;
+          const a = 0.25 + 0.75 * near;
+          const g = ctx.createRadialGradient(hx, hy, 0, hx, hy, r);
+          g.addColorStop(0, css([255, 255, 255], a));
+          g.addColorStop(0.25, css(col, a * 0.6));
+          g.addColorStop(1, css(col, 0));
+          ctx.fillStyle = g;
+          ctx.fillRect(hx - r, hy - r, r * 2, r * 2);
+        }
+      }
+
+      // the jump flash
+      if (flash > 0.003) {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = css(mix([255, 255, 255], cfg.star, 0.25), flash * (0.45 + 0.55 * k));
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      clock += dt;
+      const p = (clock % cfg.cycle) / cfg.cycle;
+      if (prevPhase < 0.8 && p >= 0.8) newSky();
+      prevPhase = p;
+      const v = speedAt(p);
+      for (const s of stars) {
+        s.z -= v * dt;
+        const sx = s.x / Math.max(s.z, 0.001) * FOCAL, sy = s.y / Math.max(s.z, 0.001) * FOCAL;
+        if (s.z < 0.04 || Math.abs(sx) > CX + 40 || Math.abs(sy) > CY + 40) place(s, true);
+      }
+      draw(p, v, flashAt(p));
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

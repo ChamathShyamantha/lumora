@@ -1,0 +1,133 @@
+<head>
+  <title>Moire Drift</title>
+  <meta description="Overlapping line and ring gratings slide past each other, conjuring broad rivers of interference light." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="lively" />
+  <meta palette="mono" />
+  <meta tags="moire,interference,lines,rings,optical,illusion,op art,hypnotic,geometric" />
+  <meta property="lineColor" label="Line Colour" type="color" default="#2ad4ff" />
+  <meta property="pattern" label="Pattern" type="combobox" values="Lines,Rings,Mixed" default="Mixed" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="40" />
+  <meta property="density" label="Line Density" type="number" min="1" max="100" default="45" tooltip="How tightly the lines are packed; the interference bands grow as it rises" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+
+    const B = buffer(160, 100);
+    const cfg = { col: [42, 212, 255], pat: 'Mixed', speed: 40, dens: 45 };
+    let t = 0;
+        const L = [{}, {}, {}, {}];
+
+    function readProps() {
+      cfg.col = hexRgb(get(() => lineColor, '#2ad4ff'), '#2ad4ff');
+      const p = String(get(() => pattern, 'Mixed'));
+      cfg.pat = p === 'Lines' || p === 'Rings' ? p : 'Mixed';
+      cfg.speed = clamp(num(get(() => speed), 40), 0, 100);
+      cfg.dens = clamp(num(get(() => density), 45), 0, 100);
+    }
+    function onlineColorChanged() { readProps(); }
+    function onpatternChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function ondensityChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt * (0.08 + cfg.speed * 0.012);
+      if (t > 1e5) t = 0;
+    }
+
+    // Two interfering pairs. Each pair is two nearly identical gratings (straight lines or
+    // concentric rings) slightly offset, so their difference forms broad, slow moire bands.
+    function setupLayers() {
+      const k = (2 * Math.PI) / (22 - cfg.dens * 0.14);
+      for (let i = 0; i < 4; i++) {
+        const l = L[i], pair = i >> 1, second = i & 1;
+        l.ring = cfg.pat === 'Rings' || (cfg.pat === 'Mixed' && pair === 0);
+        l.k = k * (1 + second * 0.04 * Math.sin(t * 0.21 + pair * 2));
+        if (l.ring) {
+          const q = i * 1.37;
+          l.cx = 160 + (60 + 50 * pair) * Math.sin(t * (0.27 + 0.06 * i) + q);
+          l.cy = 100 + (40 + 30 * pair) * Math.sin(t * (0.19 + 0.05 * i) + q * 1.9);
+          l.ph = t * (second ? 1.6 : -1.6);
+        } else {
+          const base = pair === 0 ? t * 0.35 : 1.4 - t * 0.27;
+          const spread = 0.16 + 0.12 * Math.sin(t * 0.33 + pair * 2.4);
+          const a = base + second * spread;
+          l.c = Math.cos(a); l.s = Math.sin(a);
+          l.ph = t * (second ? 1.2 : -1.2);
+        }
+      }
+    }
+    function phase(l, x, y) {
+      if (l.ring) { const dx = x - l.cx, dy = y - l.cy; return Math.sqrt(dx * dx + dy * dy) * l.k + l.ph; }
+      return (x * l.c + y * l.s) * l.k + l.ph;
+    }
+
+    function render() {
+      setupLayers();
+      const col = cfg.col;
+      // Keep very dark user colours visible, and add a white-hot core on the brightest bands.
+      const mx = Math.max(col[0], col[1], col[2], 1);
+      const sc = mx < 140 ? 140 / mx : 1;
+      const cr = col[0] * sc, cg = col[1] * sc, cb = col[2] * sc;
+      const d = B.d, bw = B.w, bh = B.h, sx = W / bw, sy = H / bh;
+      const l0 = L[0], l1 = L[1], l2 = L[2], l3 = L[3];
+      let o = 0;
+      for (let j = 0; j < bh; j++) {
+        const y = (j + 0.5) * sy;
+        for (let i = 0; i < bw; i++, o += 4) {
+          const x = (i + 0.5) * sx;
+          const p0 = phase(l0, x, y), p1 = phase(l1, x, y), p2 = phase(l2, x, y), p3 = phase(l3, x, y);
+          // The slow interference beats carry the light on sparse LEDs...
+          const b1 = 0.5 + 0.5 * Math.cos(p0 - p1), b2 = 0.5 + 0.5 * Math.cos(p2 - p3);
+          let beat = b1 * (0.25 + 0.75 * b2);
+          beat = beat * beat * (3 - 2 * beat);
+          // ...while one grating etches its fine lines through the bright bands.
+          const g = 0.5 + 0.5 * Math.cos(p0);
+          const v = beat * (0.45 + 0.85 * g) + 0.02;
+          const w = v > 0.95 ? (v - 0.95) * 1.2 : 0;
+          d[o] = cr * v + 255 * w;
+          d[o + 1] = cg * v + 255 * w;
+          d[o + 2] = cb * v + 255 * w;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

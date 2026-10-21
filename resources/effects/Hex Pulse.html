@@ -1,0 +1,173 @@
+<head>
+  <title>Hex Pulse</title>
+  <meta description="A honeycomb of neon tiles flares and fades as shockwaves ripple outward from random sparks." />
+  <meta publisher="Lumora" />
+  <meta category="Abstract" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="hexagon,honeycomb,grid,tiles,waves,ripple,sci-fi,cyber,neon,geometric" />
+  <meta property="hexSize" label="Hex Size" type="number" min="8" max="40" step="1" default="17" />
+  <meta property="waveFrequency" label="Wave Frequency" type="number" min="1" max="100" default="45" tooltip="How often new waves spark" />
+  <meta property="hexColor" label="Colour" type="color" default="#00e1ff" />
+  <meta property="colorShift" label="Colour Shift" type="number" min="0" max="100" default="40" tooltip="How far each wave's colour wanders from the chosen colour" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function rgbHsv(c) {
+      const r = c[0] / 255, g = c[1] / 255, b = c[2] / 255;
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      let h = 0;
+      if (d > 0) {
+        if (mx === r) h = ((g - b) / d) % 6; else if (mx === g) h = (b - r) / d + 2; else h = (r - g) / d + 4;
+        h /= 6; if (h < 0) h += 1;
+      }
+      return [h, mx > 0 ? d / mx : 0, mx];
+    }
+    function hsvRgb(h, s, v, out) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      const m = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][i];
+      out[0] = m[0] * 255; out[1] = m[1] * 255; out[2] = m[2] * 255;
+      return out;
+    }
+
+    const cfg = { size: 17, freq: 45, hsv: [0.52, 1, 1], shift: 40 };
+    let tiles = [], builtSize = -1;
+    const waves = [];
+    let seed = 3;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    let spawnTimer = 0, t = 0;
+    const tmp = [0, 0, 0];
+    const RING_GAP = 80;
+
+    function readProps() {
+      cfg.size = Math.round(clamp(num(get(() => hexSize), 17), 8, 40));
+      cfg.freq = clamp(num(get(() => waveFrequency), 45), 0, 100);
+      const hsv = rgbHsv(hexRgb(get(() => hexColor, '#00e1ff'), '#00e1ff'));
+      // Neon needs saturation and brightness; keep the user's hue, lift the rest.
+      hsv[1] = Math.max(hsv[1], 0.55); hsv[2] = Math.max(hsv[2], 0.6);
+      cfg.hsv = hsv;
+      cfg.shift = clamp(num(get(() => colorShift), 40), 0, 100);
+      if (builtSize !== cfg.size) build();
+    }
+    function onhexSizeChanged() { readProps(); }
+    function onwaveFrequencyChanged() { readProps(); }
+    function onhexColorChanged() { readProps(); }
+    function oncolorShiftChanged() { readProps(); }
+
+    function build() {
+      const R = cfg.size, hw = Math.sqrt(3) * R, vs = 1.5 * R;
+      tiles = [];
+      for (let row = -1; row * vs < H + R; row++) {
+        for (let col = -1; col * hw < W + hw; col++) {
+          const x = col * hw + (row & 1 ? hw / 2 : 0), y = row * vs;
+          tiles.push({ x, y, e: 0, r: 0, g: 0, b: 0, ph: rnd() * 6.283 });
+        }
+      }
+      builtSize = R;
+      waves.length = 0;
+    }
+
+    function spawn() {
+      const tl = tiles[(rnd() * tiles.length) | 0];
+      if (!tl) return;
+      const hue = cfg.hsv[0] + (rnd() - 0.5) * cfg.shift * 0.005;
+      waves.push({ x: tl.x, y: tl.y, r: 0, sp: 95 + rnd() * 45, hue, power: 0.85 + rnd() * 0.15 });
+    }
+
+    function update(dt) {
+      t += dt;
+      spawnTimer -= dt;
+      if (spawnTimer <= 0) {
+        spawn();
+        spawnTimer = (3 - cfg.freq * 0.026) * (0.6 + rnd() * 0.8);
+      }
+      for (let w = waves.length - 1; w >= 0; w--) {
+        const wv = waves[w];
+        const r0 = wv.r;
+        wv.r += wv.sp * dt;
+        for (const tl of tiles) {
+          const dx = tl.x - wv.x, dy = tl.y - wv.y, d = Math.sqrt(dx * dx + dy * dy);
+          // Each spark sends a train of three rings, each fainter than the last.
+          let s = 0;
+          for (let ring = 0; ring < 3; ring++) {
+            const off = ring * RING_GAP;
+            if (d >= r0 - off && d < wv.r - off) { s = wv.power * (1 - d / 700) * (1 - ring * 0.3); break; }
+          }
+          if (s > 0) {
+            // The ring's colour drifts with distance, so each wave paints a gradient as it travels.
+            hsvRgb(wv.hue + d * cfg.shift * 0.000009, cfg.hsv[1], 1, tmp);
+            const mix = s >= tl.e ? 1 : s / (tl.e + 0.001);
+            tl.r += (tmp[0] - tl.r) * mix; tl.g += (tmp[1] - tl.g) * mix; tl.b += (tmp[2] - tl.b) * mix;
+            tl.e = Math.max(tl.e, s);
+          }
+        }
+        if (wv.r > 420 + RING_GAP * 2) waves.splice(w, 1);
+      }
+      const k = Math.exp(-dt * 3.2);
+      for (const tl of tiles) tl.e *= k;
+    }
+
+    const HX = [], HY = [];
+    for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3; HX.push(Math.cos(a)); HY.push(Math.sin(a)); }
+    function hexPath(x, y, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + HX[0] * r, y + HY[0] * r);
+      for (let i = 1; i < 6; i++) ctx.lineTo(x + HX[i] * r, y + HY[i] * r);
+      ctx.closePath();
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+      const R = cfg.size;
+      const base = hsvRgb(cfg.hsv[0], cfg.hsv[1], 1, [0, 0, 0]);
+      for (const tl of tiles) {
+        const e = tl.e;
+        // A faint shimmering base keeps the honeycomb visible between waves.
+        const amb = 0.1 + 0.05 * Math.sin(t * 0.9 + tl.ph + tl.x * 0.02);
+        let r = base[0] * amb + tl.r * e, g = base[1] * amb + tl.g * e, b = base[2] * amb + tl.b * e;
+        const hot = e > 0.55 ? (e - 0.55) * 2 : 0;
+        r += (255 - r) * hot * 0.6; g += (255 - g) * hot * 0.6; b += (255 - b) * hot * 0.6;
+        ctx.fillStyle = 'rgb(' + (clamp(r, 0, 255) | 0) + ',' + (clamp(g, 0, 255) | 0) + ',' + (clamp(b, 0, 255) | 0) + ')';
+        hexPath(tl.x, tl.y, R * 0.9);
+        ctx.fill();
+      }
+      // Soft bloom over lit tiles so neighbouring LEDs catch some spill.
+      ctx.globalCompositeOperation = 'lighter';
+      for (const tl of tiles) {
+        if (tl.e < 0.2) continue;
+        const g = ctx.createRadialGradient(tl.x, tl.y, 0, tl.x, tl.y, R * 1.6);
+        g.addColorStop(0, 'rgba(' + (tl.r | 0) + ',' + (tl.g | 0) + ',' + (tl.b | 0) + ',' + ((tl.e - 0.2) * 0.5).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(tl.x - R * 1.6, tl.y - R * 1.6, R * 3.2, R * 3.2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    spawn();
+    requestAnimationFrame(frame);
+  </script>
+</body>

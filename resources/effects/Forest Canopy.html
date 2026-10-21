@@ -1,0 +1,168 @@
+<head>
+  <title>Forest Canopy</title>
+  <meta description="Lying under the trees on a summer afternoon: golden sun spots slip and shimmer through swaying, backlit leaves." />
+  <meta publisher="Lumora" />
+  <meta category="Nature" />
+  <meta energy="calm" />
+  <meta palette="natural" />
+  <meta tags="nature,forest,trees,leaves,sunlight,dappled,summer,green,gold,wind,calm,relax" />
+  <meta property="sunColor" label="Sun Color" type="color" default="#ffd76a" />
+  <meta property="leafColor" label="Leaf Color" type="color" default="#3c9a1e" />
+  <meta property="wind" label="Wind" type="number" min="0" max="100" default="35" />
+  <meta property="leafDensity" label="Leaf Density" tooltip="More leaves means fewer, smaller sun spots" type="number" min="0" max="100" default="50" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    function buffer(w, h) {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d');
+      const img = x.createImageData(w, h);
+      return { c, x, img, d: img.data, w, h };
+    }
+    function present(b) {
+      b.x.putImageData(b.img, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(b.c, 0, 0, W, H);
+    }
+    const PERM = new Uint8Array(512);
+    (function () {
+      const p = []; let s = 2718;
+      for (let i = 0; i < 256; i++) p[i] = i;
+      for (let i = 255; i > 0; i--) { s = (s * 16807) % 2147483647; const j = s % (i + 1); const tmp = p[i]; p[i] = p[j]; p[j] = tmp; }
+      for (let i = 0; i < 512; i++) PERM[i] = p[i & 255];
+    })();
+    function vnoise(x, y) {
+      let xi = Math.floor(x), yi = Math.floor(y);
+      const xf = x - xi, yf = y - yi;
+      xi &= 255; yi &= 255;
+      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+      const a = PERM[PERM[xi] + yi], b = PERM[PERM[xi + 1] + yi], c = PERM[PERM[xi] + yi + 1], d = PERM[PERM[xi + 1] + yi + 1];
+      const top = a + (b - a) * u, bot = c + (d - c) * u;
+      return (top + (bot - top) * v) / 255;
+    }
+    const fbm = (x, y) => 0.55 * vnoise(x, y) + 0.3 * vnoise(x * 2.07 + 17.3, y * 2.07 + 5.1) + 0.15 * vnoise(x * 4.13 + 31.7, y * 4.13 + 9.9);
+
+    const BW = 80, BH = 50, SX = W / BW, SY = H / BH;
+    const B = buffer(BW, BH);
+    const cfg = { sun: [255, 215, 106], leaf: [60, 154, 30], wind: 35, density: 50 };
+    let t = 0, sway1x = 0, sway1y = 0, sway2x = 0, drift = 0, flutter = 0;
+
+    function readProps() {
+      cfg.sun = hexRgb(get(() => sunColor, '#ffd76a'), '#ffd76a');
+      cfg.leaf = hexRgb(get(() => leafColor, '#3c9a1e'), '#3c9a1e');
+      cfg.wind = clamp(num(get(() => wind), 35), 0, 100);
+      cfg.density = clamp(num(get(() => leafDensity), 50), 0, 100);
+    }
+    function onsunColorChanged() { readProps(); }
+    function onleafColorChanged() { readProps(); }
+    function onwindChanged() { readProps(); }
+    function onleafDensityChanged() { readProps(); }
+
+    function update(dt) {
+      t += dt;
+      if (t > 1e5) t = 0;
+      const w = cfg.wind / 100;
+      // branches sway back and forth on gusty, layered rhythms
+      const gust = 0.6 + 0.4 * Math.sin(t * 0.13) * Math.sin(t * 0.31 + 1);
+      const amp = (3 + w * 22) * gust;
+      sway1x = amp * (Math.sin(t * (0.6 + w * 0.7)) + 0.45 * Math.sin(t * (1.7 + w) + 1.3));
+      sway1y = amp * 0.4 * Math.sin(t * (0.8 + w * 0.5) + 0.7);
+      sway2x = amp * 0.45 * Math.sin(t * (0.35 + w * 0.4) + 2.1);
+      drift += dt * (2 + w * 9);
+      flutter += dt * (0.4 + w * 2.2);
+      if (drift > 1e4) drift = 0;
+      if (flutter > 1e4) flutter = 0;
+    }
+
+    // Sun spots: images of the sun cast through gaps in the canopy.
+    const SPOTS = [];
+    (function () {
+      let sd = 99;
+      const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+      for (let gy = 0; gy < 6; gy++) {
+        for (let gx = 0; gx < 9; gx++) {
+          SPOTS.push({ x: (gx + 0.2 + rnd() * 0.6) * (W + 60) / 9 - 30, y: (gy + 0.2 + rnd() * 0.6) * (H + 40) / 6 - 20, r: 14 + rnd() * 16, ph: rnd() * 100, k: 0.6 + rnd() * 0.8 });
+        }
+      }
+    })();
+    const fin = (v) => (isFinite(v) ? v : 0);
+    const rgba = (c, a) => 'rgba(' + (clamp(fin(c[0]), 0, 255) | 0) + ',' + (clamp(fin(c[1]), 0, 255) | 0) + ',' + (clamp(fin(c[2]), 0, 255) | 0) + ',' + clamp(fin(a), 0, 1).toFixed(3) + ')';
+
+    function render() {
+      const d = B.d, sun = cfg.sun, leaf = cfg.leaf;
+      const dens = cfg.density / 100;
+      const shadow = [leaf[0] * 0.2 + 4, leaf[1] * 0.24 + 8, leaf[2] * 0.16 + 4];
+      // translucent leaf colour: leaf lit from behind, pushed toward the sun's warmth
+      const glowL = [leaf[0] * 0.8 + sun[0] * 0.25, leaf[1] * 0.9 + sun[1] * 0.25, leaf[2] * 0.6 + sun[2] * 0.1];
+      let o = 0;
+      for (let j = 0; j < BH; j++) {
+        const y = (j + 0.5) * SY;
+        for (let i = 0; i < BW; i++, o += 4) {
+          const x = (i + 0.5) * SX;
+          // soft out-of-focus foliage: backlit leaves against deep shade
+          const n = fbm((x + sway2x + drift * 0.3) / 60, (y + sway1y * 0.5) / 60 + 3.3);
+          const lit = smooth(0.3 + dens * 0.15, 0.75, n) * (0.75 + 0.25 * Math.sin(x * 0.01 - y * 0.012 + t * 0.1));
+          const shaft = 0.5 + 0.5 * Math.sin((x * 0.8 + y) * 0.012 - t * 0.07);
+          d[o] = shadow[0] + (glowL[0] - shadow[0]) * lit * 0.75 + 10 * shaft;
+          d[o + 1] = shadow[1] + (glowL[1] - shadow[1]) * lit * 0.75 + 9 * shaft;
+          d[o + 2] = shadow[2] + (glowL[2] - shadow[2]) * lit * 0.75 + 2 * shaft;
+          d[o + 3] = 255;
+        }
+      }
+      present(B);
+
+      // the dapples themselves
+      const th = 0.34 + dens * 0.24;
+      const size = 1.25 - dens * 0.45;
+      ctx.globalCompositeOperation = 'lighter';
+      const core = [sun[0] * 0.85 + 40, sun[1] * 0.85 + 36, sun[2] * 0.8 + 24];
+      for (const s of SPOTS) {
+        const bend = s.k;
+        const x = s.x + sway1x * bend + 4 * Math.sin(t * 0.9 + s.ph);
+        const y = s.y + sway1y * bend;
+        // is there a gap in the canopy above this spot right now?
+        const g = fbm((s.x + drift + sway2x * 0.6) / 45 + s.ph, s.y / 45) + 0.08 * (vnoise(s.ph + flutter, s.ph * 0.7) - 0.5);
+        const b = smooth(th, th + 0.18, g);
+        if (b < 0.02) continue;
+        const r = s.r * size * (0.7 + 0.3 * b);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1.35, 1);
+        const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+        gr.addColorStop(0, rgba(core, 0.8 * b));
+        gr.addColorStop(0.35, rgba(sun, 0.65 * b));
+        gr.addColorStop(0.75, rgba(sun, 0.2 * b));
+        gr.addColorStop(1, rgba(sun, 0));
+        ctx.fillStyle = gr;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

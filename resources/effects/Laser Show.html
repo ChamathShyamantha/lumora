@@ -1,0 +1,202 @@
+<head>
+  <title>Laser Show</title>
+  <meta description="Club lasers fan and scissor through drifting haze, flaring wider on the bass and splaying on the highs." />
+  <meta publisher="Lumora" />
+  <meta category="Party & Music" />
+  <meta energy="intense" />
+  <meta palette="neon" />
+  <meta tags="audio,music,laser,beams,club,rave,haze,fog,concert,party" />
+  <meta property="beamColors" label="Beam Colours" type="combobox" values="Neon Mix,Classic Green,Red & Blue,Cyan & Pink,Rainbow" default="Neon Mix" />
+  <meta property="sweepSpeed" label="Sweep Speed" type="number" min="0" max="100" default="45" />
+  <meta property="haze" label="Haze" type="number" min="0" max="100" default="55" tooltip="How much smoke catches the light" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    function hsv(h, s, v) {
+      h = (h - Math.floor(h)) * 6;
+      const i = h | 0, f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+      const o = i === 0 ? [v, t, p] : i === 1 ? [q, v, p] : i === 2 ? [p, v, t] : i === 3 ? [p, q, v] : i === 4 ? [t, p, v] : [v, p, q];
+      return [o[0] * 255, o[1] * 255, o[2] * 255];
+    }
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    function getAudio() {
+      if (typeof engine === 'undefined' || !engine || !engine.audio || !engine.audio.active) return null;
+      return engine.audio;
+    }
+
+    const cfg = { colors: 'Neon Mix', speed: 45, haze: 55 };
+    function readProps() {
+      cfg.colors = String(get(() => beamColors, 'Neon Mix'));
+      cfg.speed = clamp(num(get(() => sweepSpeed), 45), 0, 100);
+      cfg.haze = clamp(num(get(() => haze), 55), 0, 100);
+    }
+    function onbeamColorsChanged() { readProps(); }
+    function onsweepSpeedChanged() { readProps(); }
+    function onhazeChanged() { readProps(); }
+
+    function beamColor(i, t) {
+      switch (cfg.colors) {
+        case 'Classic Green': return [30, 255, 60];
+        case 'Red & Blue': return i % 2 ? [40, 80, 255] : [255, 20, 30];
+        case 'Cyan & Pink': return i % 2 ? [255, 40, 190] : [0, 230, 255];
+        case 'Rainbow': return hsv(i * 0.13 + t * 0.05, 1, 1);
+        default: return [[40, 255, 70], [255, 0, 200], [0, 220, 255]][i % 3];
+      }
+    }
+
+    // Each scene returns a list of beams { x, y, a } where a is the angle from straight up.
+    const SCENES = [
+      (ph, spread) => { // fan rising from stage centre
+        const out = [], n = 7, sway = Math.sin(ph) * 0.35;
+        for (let i = 0; i < n; i++) out.push({ x: 160, y: 206, a: sway + (i / (n - 1) - 0.5) * spread * 1.9 });
+        return out;
+      },
+      (ph, spread) => { // scissoring fans from the two bottom corners
+        const out = [], n = 4;
+        for (let i = 0; i < n; i++) {
+          const o = (i / (n - 1) - 0.5) * spread * 0.9;
+          out.push({ x: -4, y: 204, a: 0.85 + Math.sin(ph) * 0.45 + o });
+          out.push({ x: 324, y: 204, a: -0.85 - Math.sin(ph) * 0.45 - o });
+        }
+        return out;
+      },
+      (ph, spread) => { // curtain of beams raking down from the rig
+        const out = [], n = 5;
+        for (let i = 0; i < n; i++) {
+          const x = 30 + i * 65;
+          out.push({ x, y: -6, a: Math.PI + Math.sin(ph + i * 0.9) * (0.35 + spread * 0.35) });
+        }
+        return out;
+      },
+      (ph, spread) => { // crossfire from the side walls
+        const out = [], n = 3;
+        for (let i = 0; i < n; i++) {
+          const o = (i - 1) * spread * 0.35;
+          out.push({ x: -6, y: 100, a: Math.PI / 2 + Math.sin(ph) * 0.4 + o });
+          out.push({ x: 326, y: 100, a: -Math.PI / 2 + Math.sin(ph + 1.6) * 0.4 - o });
+        }
+        return out;
+      }
+    ];
+
+    let t = 0, ph = 0, scene = 0, prevScene = 0, fade = 1, sceneTimer = 0, beats = 0, lastBeatCount = null;
+    let bassS = 0, trebS = 0, kick = 0, quiet = 99;
+    const blobs = [];
+    for (let i = 0; i < 4; i++) blobs.push({ x: Math.random() * W, y: 40 + Math.random() * 140, r: 90 + Math.random() * 60, vx: (Math.random() - 0.5) * 8, p: Math.random() * 6 });
+
+    function nextScene() { prevScene = scene; scene = (scene + 1) % SCENES.length; fade = 0; sceneTimer = 0; }
+
+    function update(dt) {
+      t += dt;
+      const a = getAudio();
+      let bass = 0, treb = 0, beat = false;
+      if (a) {
+        bass = clamp(num(a.bass, 0), 0, 1);
+        treb = clamp(num(a.treble, 0), 0, 1);
+        const bc = num(a.beatCount, 0);
+        beat = a.beat === true || (lastBeatCount !== null && bc !== lastBeatCount);
+        lastBeatCount = bc;
+      } else lastBeatCount = null;
+      const loud = !!a && num(a.level, 0) > 0.02;
+      quiet = loud ? 0 : quiet + dt;
+      bassS += (bass - bassS) * (1 - Math.exp(-dt * 14));
+      trebS += (treb - trebS) * (1 - Math.exp(-dt * 6));
+      if (beat) { kick = 1; beats++; if (beats % 16 === 0) nextScene(); }
+      kick *= Math.exp(-dt / 0.18);
+      sceneTimer += dt;
+      if (quiet > 3 && sceneTimer > 10) nextScene();
+      fade = Math.min(1, fade + dt / 0.9);
+      const sp = 0.15 + cfg.speed / 100 * 1.6;
+      ph += dt * sp * (1 + kick * 0.6);
+      for (const b of blobs) {
+        b.x += b.vx * dt;
+        if (b.x < -60) b.x = W + 60; else if (b.x > W + 60) b.x = -60;
+      }
+    }
+
+    function drawBeam(b, col, power, i) {
+      const L = 420;
+      const dx = Math.sin(b.a), dy = -Math.cos(b.a);
+      const x2 = b.x + dx * L, y2 = b.y + dy * L;
+      const hz = cfg.haze / 100;
+      const passes = [[30 + 18 * bassS, 0.1 + 0.16 * hz], [11 + 6 * bassS, 0.32 + 0.2 * hz], [3.2 + 2 * bassS, 0.95]];
+      for (let p = 0; p < passes.length; p++) {
+        const [w, al] = passes[p];
+        const g = ctx.createLinearGradient(b.x, b.y, x2, y2);
+        const c = p === 2 ? [col[0] * 0.6 + 100, col[1] * 0.6 + 100, col[2] * 0.6 + 100] : col;
+        g.addColorStop(0, rgba(c, al * power));
+        g.addColorStop(0.55, rgba(c, al * power * (0.35 + 0.4 * hz)));
+        g.addColorStop(1, rgba(c, 0));
+        ctx.strokeStyle = g;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(b.x, b.y);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      }
+      // hot spot where the beam leaves the projector
+      const r = 26 + 16 * bassS;
+      const hg = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+      hg.addColorStop(0, rgba([255, 255, 255], 0.55 * power));
+      hg.addColorStop(0.3, rgba(col, 0.45 * power));
+      hg.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = hg;
+      ctx.fillRect(b.x - r, b.y - r, r * 2, r * 2);
+    }
+
+    function render() {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'round';
+      ctx.fillStyle = '#020006';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      const hz = cfg.haze / 100;
+      // drifting smoke that faintly picks up the light
+      const tint = beamColor(0, t);
+      for (const b of blobs) {
+        const a = hz * (0.11 + 0.04 * Math.sin(t * 0.4 + b.p)) * (1 + kick * 0.8);
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        g.addColorStop(0, rgba([tint[0] * 0.5 + 60, tint[1] * 0.5 + 40, tint[2] * 0.5 + 90], a));
+        g.addColorStop(1, rgba(tint, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+      }
+      const spread = 0.55 + trebS * 0.5 + kick * 0.15;
+      const power = 0.7 + bassS * 0.45 + kick * 0.2;
+      const draw = (si, wgt) => {
+        if (wgt <= 0.01) return;
+        const beams = SCENES[si](ph + si * 1.7, spread);
+        for (let i = 0; i < beams.length; i++) {
+          // gentle shimmer from the highs, never a hard strobe
+          const shimmer = 1 - trebS * 0.15 * (0.5 + 0.5 * Math.sin(t * 23 + i * 2.3));
+          drawBeam(beams[i], beamColor(i, t), power * wgt * shimmer, i);
+        }
+      };
+      draw(scene, fade);
+      if (fade < 1) draw(prevScene, 1 - fade);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

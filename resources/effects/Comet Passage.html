@@ -1,0 +1,205 @@
+<head>
+  <title>Comet Passage</title>
+  <meta description="Now and then a comet glides silently across a quiet, twinkling sky, trailing a long luminous ion tail and a soft veil of dust." />
+  <meta publisher="Lumora" />
+  <meta category="Space" />
+  <meta energy="calm" />
+  <meta palette="cool" />
+  <meta tags="space,comet,night,sky,stars,tail,glide,ambient,relaxing" />
+  <meta property="passInterval" label="Pass Interval" type="number" min="0" max="60" default="6" tooltip="Seconds of quiet starry sky between comets" />
+  <meta property="tailLength" label="Tail Length" type="number" min="1" max="100" default="65" />
+  <meta property="cometColor" label="Comet Color" type="color" default="#5ccfff" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const read = (f, d) => { try { const v = f(); return v === undefined || v === null || v === '' ? d : v; } catch (e) { return d; } };
+    const numIn = (v, d, lo, hi) => { const n = Number(v); return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const toRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const css = (c, a) => 'rgba(' + (Math.min(255, Math.max(0, c[0])) | 0) + ',' + (Math.min(255, Math.max(0, c[1])) | 0) + ',' + (Math.min(255, Math.max(0, c[2])) | 0) + ',' + clamp01(a).toFixed(3) + ')';
+    const lighten = (c, k) => [c[0] + (255 - c[0]) * k, c[1] + (255 - c[1]) * k, c[2] + (255 - c[2]) * k];
+
+    const cfg = { gap: 6, tail: 65, rgb: [92, 207, 255] };
+    let spriteKey = '';
+    function readProps() {
+      cfg.gap = numIn(read(() => passInterval, 6), 6, 0, 60);
+      cfg.tail = numIn(read(() => tailLength, 65), 65, 1, 100);
+      cfg.rgb = toRgb(read(() => cometColor, '#5ccfff'), '5ccfff');
+    }
+    function onpassIntervalChanged() { readProps(); }
+    function ontailLengthChanged() { readProps(); }
+    function oncometColorChanged() { readProps(); }
+
+    // soft round glow sprites (tinted) for tail particles
+    function makeSprite(c) {
+      const s = document.createElement('canvas');
+      s.width = 32; s.height = 32;
+      const x = s.getContext('2d');
+      const g = x.createRadialGradient(16, 16, 0, 16, 16, 16);
+      g.addColorStop(0, css(lighten(c, 0.35), 1));
+      g.addColorStop(0.4, css(c, 0.45));
+      g.addColorStop(1, css(c, 0));
+      x.fillStyle = g;
+      x.fillRect(0, 0, 32, 32);
+      return s;
+    }
+    let ionSprite = null, dustSprite = null;
+    function ensureSprites() {
+      const key = cfg.rgb.join(',');
+      if (key === spriteKey && ionSprite) return;
+      spriteKey = key;
+      ionSprite = makeSprite(cfg.rgb);
+      dustSprite = makeSprite(lighten([cfg.rgb[2] * 0.8 + 40, cfg.rgb[1] * 0.85 + 30, cfg.rgb[0] * 0.5 + 90], 0.45));
+    }
+
+    // background sky
+    const stars = [];
+    for (let i = 0; i < 38; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, r: 4 + Math.random() * 9, ph: Math.random() * 6.28, sp: 0.4 + Math.random() * 1.4, b: 0.25 + Math.random() * 0.55 });
+
+    // comet state
+    let mode = 'wait', waitLeft = 1.2, prog = 0, dur = 11;
+    let A = [0, 0], B = [0, 0], C = [0, 0], tailDir = [1, 0], fadeSky = 0;
+    const parts = [];
+    function startPass() {
+      const ltr = Math.random() < 0.5;
+      const y0 = 40 + Math.random() * 80, y1 = 60 + Math.random() * 90;
+      const lift = (Math.random() - 0.5) * 60;
+      A = [ltr ? -50 : W + 50, y0];
+      B = [ltr ? W + 60 : -60, y1];
+      C = [W / 2 + (Math.random() - 0.5) * 80, (y0 + y1) / 2 + lift];
+      dur = 9 + Math.random() * 4;
+      prog = 0;
+      // the sun sits off to one side, so the tail angles away from it
+      const vx = B[0] - A[0], vy = B[1] - A[1], vl = Math.hypot(vx, vy);
+      const rot = (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.35);
+      const bx = -vx / vl, by = -vy / vl;
+      tailDir = [bx * Math.cos(rot) - by * Math.sin(rot), bx * Math.sin(rot) + by * Math.cos(rot)];
+      mode = 'pass';
+    }
+    function bez(t) {
+      const u = 1 - t;
+      return [u * u * A[0] + 2 * u * t * C[0] + t * t * B[0], u * u * A[1] + 2 * u * t * C[1] + t * t * B[1]];
+    }
+
+    let clock = 0, emitAcc = 0, last = null;
+    function step(dt) {
+      clock += dt;
+      if (mode === 'wait') {
+        waitLeft -= dt;
+        if (waitLeft <= 0) startPass();
+      } else {
+        prog += dt / dur;
+        if (prog >= 1) { mode = 'wait'; waitLeft = cfg.gap + 0.5; }
+      }
+      const visible = mode === 'pass' ? 1 : 0;
+      fadeSky += (visible - fadeSky) * Math.min(1, dt * 0.8);
+      const len = 70 + cfg.tail * 2.4;
+      if (mode === 'pass') {
+        const h = bez(prog);
+        emitAcc += dt * 55;
+        while (emitAcc >= 1) {
+          emitAcc -= 1;
+          const ion = Math.random() < 0.55;
+          const sp = ion ? len * (0.55 + Math.random() * 0.5) : len * (0.15 + Math.random() * 0.25);
+          const spread = ion ? 0.06 : 0.3;
+          const a = (Math.random() - 0.5) * spread;
+          const dx = tailDir[0] * Math.cos(a) - tailDir[1] * Math.sin(a), dy = tailDir[0] * Math.sin(a) + tailDir[1] * Math.cos(a);
+          parts.push({ x: h[0], y: h[1], vx: dx * sp, vy: dy * sp, age: 0, life: ion ? 1 + Math.random() * 0.6 : 2 + Math.random() * 1.5, ion, r: ion ? 5 + Math.random() * 5 : 8 + Math.random() * 10 });
+        }
+      }
+      for (let i = parts.length - 1; i >= 0; i--) {
+        const p = parts[i];
+        p.age += dt;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        if (!p.ion) { p.vx *= Math.exp(-dt * 0.6); p.vy *= Math.exp(-dt * 0.6); }
+        if (p.age >= p.life) parts.splice(i, 1);
+      }
+      if (parts.length > 600) parts.splice(0, parts.length - 600);
+    }
+
+    // a tapering beam of overlapping soft glows: broad and edge-free for LEDs
+    function beam(h, dir, len, w0, w1, sprite, a0) {
+      const n = 30;
+      for (let i = 0; i < n; i++) {
+        const k = i / (n - 1);
+        const r = w0 + (w1 - w0) * k;
+        const x = h[0] + dir[0] * len * k, y = h[1] + dir[1] * len * k;
+        ctx.globalAlpha = clamp01(a0 * Math.pow(1 - k, 1.4));
+        ctx.drawImage(sprite, x - r, y - r, r * 2, r * 2);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function draw() {
+      const c = cfg.rgb;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, 'rgb(3,8,26)');
+      sky.addColorStop(1, 'rgb(10,22,48)');
+      ctx.fillStyle = sky;
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+      // faint band of distant galaxy light keeps the setup softly lit
+      const band = ctx.createLinearGradient(0, 160, 320, 40);
+      band.addColorStop(0, 'rgba(40,60,120,0)');
+      band.addColorStop(0.5, 'rgba(50,80,150,0.22)');
+      band.addColorStop(1, 'rgba(40,60,120,0)');
+      ctx.fillStyle = band;
+      ctx.fillRect(0, 0, W, H);
+      for (const s of stars) {
+        const a = s.b * (0.55 + 0.45 * Math.sin(clock * s.sp + s.ph)) * (1 - 0.35 * fadeSky);
+        const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r);
+        g.addColorStop(0, 'rgba(230,240,255,' + a.toFixed(3) + ')');
+        g.addColorStop(0.25, 'rgba(170,200,255,' + (a * 0.35).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(150,180,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(s.x - s.r, s.y - s.r, s.r * 2, s.r * 2);
+      }
+      ensureSprites();
+      for (const p of parts) {
+        const k = p.age / p.life;
+        const a = (1 - k) * (k < 0.08 ? k / 0.08 : 1) * (p.ion ? 0.3 : 0.1);
+        const r = p.r * (1 + k * (p.ion ? 1.2 : 2.2));
+        ctx.globalAlpha = clamp01(a);
+        ctx.drawImage(p.ion ? ionSprite : dustSprite, p.x - r, p.y - r, r * 2, r * 2);
+      }
+      ctx.globalAlpha = 1;
+      if (mode === 'pass') {
+        const h = bez(prog);
+        const len = 70 + cfg.tail * 2.4;
+        const fin = Math.min(1, prog * 12, (1 - prog) * 12 + 0.6);
+        beam(h, tailDir, len * 1.05, 22, 70, ionSprite, 0.22 * fin);
+        beam(h, tailDir, len * 0.85, 8, 22, ionSprite, 0.4 * fin);
+        const hr = 54;
+        const g = ctx.createRadialGradient(h[0], h[1], 0, h[0], h[1], hr);
+        g.addColorStop(0, 'rgba(255,255,255,' + (0.95 * fin).toFixed(3) + ')');
+        g.addColorStop(0.1, css(lighten(c, 0.6), 0.8 * fin));
+        g.addColorStop(0.35, css(c, 0.32 * fin));
+        g.addColorStop(1, css(c, 0));
+        ctx.fillStyle = g;
+        ctx.fillRect(h[0] - hr, h[1] - hr, hr * 2, hr * 2);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      let dt = last === null ? 1 / 60 : (now - last) / 1000;
+      last = now;
+      if (!(dt >= 0)) dt = 0;
+      if (dt > 0.1) dt = 0.1;
+      readProps();
+      step(dt);
+      draw();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

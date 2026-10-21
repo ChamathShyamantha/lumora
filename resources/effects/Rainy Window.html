@@ -1,0 +1,235 @@
+<head>
+  <title>Rainy Window</title>
+  <meta description="Raindrops bead and slide down a fogged window while the city glows behind it in soft, blurred lights." />
+  <meta publisher="Lumora" />
+  <meta category="Cozy & Seasonal" />
+  <meta energy="calm" />
+  <meta palette="natural" />
+  <meta tags="cozy,rain,window,city,night,bokeh,lights,lofi,autumn,relax,calm,study" />
+  <meta property="rainAmount" label="Rain Amount" type="number" min="0" max="100" default="50" />
+  <meta property="bokeh" label="City Lights" type="combobox" values="Warm,Cool,Mixed" default="Warm" />
+  <meta property="softness" label="Blur" tooltip="How soft and out of focus the lights behind the glass are" type="number" min="0" max="100" default="60" />
+  <meta property="brightness" label="Brightness" type="number" min="1" max="100" default="70" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200, TAU = Math.PI * 2;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const fin = (v) => (isFinite(v) ? v : 0);
+    const rgba = (c, a) => 'rgba(' + (clamp(fin(c[0]), 0, 255) | 0) + ',' + (clamp(fin(c[1]), 0, 255) | 0) + ',' + (clamp(fin(c[2]), 0, 255) | 0) + ',' + clamp(fin(a), 0, 1).toFixed(3) + ')';
+
+    const PALS = {
+      Warm: [[255, 170, 60], [255, 120, 40], [255, 205, 120], [255, 80, 50], [240, 190, 90], [255, 145, 90]],
+      Cool: [[90, 170, 255], [140, 120, 255], [80, 230, 255], [200, 220, 255], [60, 120, 255], [170, 90, 255]],
+      Mixed: [[255, 170, 60], [90, 170, 255], [255, 80, 70], [80, 230, 160], [255, 205, 120], [190, 110, 255]]
+    };
+    const cfg = { rain: 50, pal: 'Warm', soft: 60, bright: 70 };
+
+    // ---- the city behind the glass ----
+    const lights = [];
+    (function () {
+      for (let i = 0; i < 26; i++) {
+        const car = i < 6;
+        lights.push({
+          x: Math.random() * W, y: car ? 140 + Math.random() * 40 : 20 + Math.random() * 140,
+          r: car ? 16 + Math.random() * 10 : 14 + Math.random() * 26,
+          ci: (Math.random() * 6) | 0, ph: Math.random() * TAU, fr: 0.2 + Math.random() * 0.6,
+          vx: car ? (Math.random() < 0.5 ? -1 : 1) * (12 + Math.random() * 16) : (Math.random() - 0.5) * 1.5,
+          a: 0.45 + Math.random() * 0.45, car
+        });
+      }
+    })();
+    const city = document.createElement('canvas');
+    city.width = W; city.height = H;
+    const cx = city.getContext('2d');
+
+    // ---- water on the glass ----
+    const MAXBEADS = 140, MAXRUN = 14;
+    const beads = [];   // small static droplets
+    const runs = [];    // sliding drops
+    function newBead(b) {
+      b = b || {};
+      b.x = Math.random() * W; b.y = Math.random() * H;
+      b.r = 1.2 + Math.random() * 2.6; b.life = 0; b.span = 8 + Math.random() * 14;
+      return b;
+    }
+    function newRun(d, top) {
+      d = d || {};
+      d.x = 6 + Math.random() * (W - 12);
+      d.y = top ? -10 : Math.random() * H * 0.6;
+      d.r = 3.5 + Math.random() * 3;
+      d.v = 0; d.stuck = Math.random() * 1.5; d.wob = Math.random() * 100;
+      d.trail = [];
+      return d;
+    }
+    for (let i = 0; i < MAXBEADS; i++) { const b = newBead(); b.life = Math.random() * b.span; beads.push(b); }
+    for (let i = 0; i < MAXRUN; i++) runs.push(newRun(null, false));
+
+    function readProps() {
+      cfg.rain = clamp(num(get(() => rainAmount), 50), 0, 100);
+      const p = String(get(() => bokeh, 'Warm'));
+      cfg.pal = PALS[p] ? p : 'Warm';
+      cfg.soft = clamp(num(get(() => softness), 60), 0, 100);
+      cfg.bright = clamp(num(get(() => brightness), 70), 1, 100);
+    }
+    function onrainAmountChanged() { readProps(); }
+    function onbokehChanged() { readProps(); }
+    function onsoftnessChanged() { readProps(); }
+    function onbrightnessChanged() { readProps(); }
+
+    let t = 0, spawnAcc = 0;
+    function update(dt) {
+      t += dt;
+      if (t > 1e5) t = 0;
+      for (const L of lights) {
+        L.x += L.vx * dt;
+        if (L.x < -50) L.x += W + 100;
+        if (L.x > W + 50) L.x -= W + 100;
+      }
+      const rk = cfg.rain / 100;
+      const nBeads = Math.round(rk * MAXBEADS);
+      for (let i = 0; i < nBeads; i++) {
+        const b = beads[i];
+        b.life += dt;
+        if (b.life > b.span) newBead(b);
+      }
+      const nRun = Math.round(rk * MAXRUN);
+      for (let i = 0; i < nRun; i++) {
+        const d = runs[i];
+        if (d.stuck > 0) {
+          // a bead clinging to the glass, growing until gravity wins
+          d.stuck -= dt * (0.4 + rk);
+          d.v = 0;
+        } else {
+          const target = 30 + d.r * 14;
+          d.v += (target - d.v) * (1 - Math.exp(-dt * 3));
+          if (Math.random() < dt * 0.35) d.stuck = 0.3 + Math.random() * 1.2;  // catches on the glass
+          d.y += d.v * dt;
+          d.x += Math.sin(t * 2 + d.wob) * 6 * dt;
+          if (d.trail.length === 0 || d.y - d.trail[d.trail.length - 1][1] > 3) d.trail.push([d.x, d.y]);
+          if (d.trail.length > 40) d.trail.shift();
+          // swallow beads it rolls over
+          for (let k = 0; k < nBeads; k++) {
+            const b = beads[k];
+            const dx = b.x - d.x, dy = b.y - d.y;
+            if (dx * dx + dy * dy < (d.r + b.r) * (d.r + b.r)) { d.r = Math.min(7, d.r + b.r * 0.08); newBead(b); b.life = 0; b.y = Math.random() * H; }
+          }
+        }
+        if (d.y > H + 12) newRun(d, true);
+      }
+    }
+
+    function drawCity() {
+      const pal = PALS[cfg.pal];
+      const gk = 0.5 + cfg.bright / 100 * 0.85;
+      const g = cx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, rgba([10, 12, 26], 1));
+      g.addColorStop(0.65, rgba([24, 20, 34], 1));
+      g.addColorStop(1, rgba([34, 24, 30], 1));
+      cx.globalCompositeOperation = 'source-over';
+      cx.fillStyle = g;
+      cx.fillRect(0, 0, W, H);
+      cx.globalCompositeOperation = 'lighter';
+      const s = cfg.soft / 100;
+      const inner = clamp(0.75 - s * 0.7, 0.02, 0.8);
+      for (const L of lights) {
+        const c = pal[L.ci];
+        const a = L.a * gk * (0.78 + 0.22 * Math.sin(t * L.fr + L.ph));
+        const r = L.r * (0.85 + s * 0.4);
+        const gr = cx.createRadialGradient(L.x, L.y, 0, L.x, L.y, r);
+        gr.addColorStop(0, rgba(c, a));
+        gr.addColorStop(inner, rgba(c, a * 0.85));
+        gr.addColorStop(Math.min(0.99, inner + 0.12 + s * 0.2), rgba(c, a * 0.35));
+        gr.addColorStop(1, rgba(c, 0));
+        cx.fillStyle = gr;
+        cx.fillRect(L.x - r, L.y - r, r * 2, r * 2);
+      }
+      cx.globalCompositeOperation = 'source-over';
+    }
+
+    function render() {
+      drawCity();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.drawImage(city, 0, 0);
+      // condensation haze on the glass
+      const fog = 0.1 + cfg.soft / 100 * 0.14;
+      ctx.fillStyle = rgba([120, 130, 150], fog);
+      ctx.fillRect(0, 0, W, H);
+
+      const rk = cfg.rain / 100;
+      const nRun = Math.round(rk * MAXRUN), nBeads = Math.round(rk * MAXBEADS);
+      // wiped trails: the glass is clearer where a drop has run, showing the city crisper
+      ctx.save();
+      ctx.beginPath();
+      let any = false;
+      for (let i = 0; i < nRun; i++) {
+        const d = runs[i];
+        for (const p of d.trail) { ctx.moveTo(p[0] + d.r * 0.6, p[1]); ctx.arc(p[0], p[1], d.r * 0.6, 0, TAU); any = true; }
+      }
+      if (any) {
+        ctx.clip();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = 0.45;
+        ctx.drawImage(city, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      ctx.restore();
+
+      // static beads: little lenses picking up the light
+      for (let i = 0; i < nBeads; i++) {
+        const b = beads[i];
+        const env = Math.min(1, b.life / 1.5, (b.span - b.life) / 1.5);
+        if (env <= 0.01) continue;
+        ctx.fillStyle = rgba([10, 12, 20], 0.15 * env);
+        ctx.beginPath(); ctx.arc(b.x, b.y + b.r * 0.25, b.r, 0, TAU); ctx.fill();
+        ctx.fillStyle = rgba([230, 235, 255], 0.35 * env);
+        ctx.beginPath(); ctx.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.45, 0, TAU); ctx.fill();
+      }
+      // running drops: each is a tiny upside-down lens of the city
+      for (let i = 0; i < nRun; i++) {
+        const d = runs[i];
+        const r = d.r;
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(d.x, d.y, r, r * 1.15, 0, 0, TAU);
+        ctx.clip();
+        ctx.translate(d.x, d.y);
+        ctx.scale(-0.12, -0.12);
+        ctx.drawImage(city, -d.x, -d.y);
+        ctx.restore();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = rgba([0, 0, 0], 0.35);
+        ctx.beginPath(); ctx.ellipse(d.x, d.y, r, r * 1.15, 0, 0, TAU); ctx.stroke();
+        // glow of the bright city caught in the drop
+        const gl = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, r * 2.6);
+        gl.addColorStop(0, rgba([255, 255, 255], 0.22));
+        gl.addColorStop(1, rgba([255, 255, 255], 0));
+        ctx.fillStyle = gl;
+        ctx.fillRect(d.x - r * 2.6, d.y - r * 2.6, r * 5.2, r * 5.2);
+        ctx.fillStyle = rgba([255, 255, 255], 0.75);
+        ctx.beginPath(); ctx.arc(d.x - r * 0.35, d.y - r * 0.45, r * 0.28, 0, TAU); ctx.fill();
+      }
+    }
+
+    let last = null;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      update(dt);
+      render();
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>

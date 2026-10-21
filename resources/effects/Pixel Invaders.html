@@ -1,0 +1,368 @@
+<head>
+  <title>Pixel Invaders</title>
+  <meta description="A blocky alien fleet marches and drops while a lone cannon blasts it apart in bursts of neon light." />
+  <meta publisher="Lumora" />
+  <meta category="Retro & Gaming" />
+  <meta energy="lively" />
+  <meta palette="neon" />
+  <meta tags="arcade,aliens,invaders,shooter,8bit,pixel,space,game,retro" />
+  <meta property="invaderColor" label="Invader Color" type="color" default="#3dff7a" />
+  <meta property="speed" label="Speed" type="number" min="1" max="100" default="50" />
+  <meta property="flashOnHit" label="Flash On Hit" type="boolean" default="1" />
+</head>
+<body style="margin:0;padding:0;background:#000;overflow:hidden">
+  <canvas id="c" width="320" height="200"></canvas>
+  <script>
+    'use strict';
+    const cv = document.getElementById('c');
+    const ctx = cv.getContext('2d');
+    const W = 320, H = 200;
+    const get = (f, d) => { try { const v = f(); return v === undefined || v === null ? d : v; } catch (e) { return d; } };
+    const num = (v, d) => { const n = Number(v); return v === undefined || v === null || v === '' || !isFinite(n) ? d : n; };
+    const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+    const bool = (v, d) => (v === undefined || v === null ? d : v === true || v === 1 || v === '1' || v === 'true');
+    const hexRgb = (v, d) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(v).trim()); const n = parseInt(m ? m[1] : d.replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const rgba = (c, a) => 'rgba(' + (clamp(c[0], 0, 255) | 0) + ',' + (clamp(c[1], 0, 255) | 0) + ',' + (clamp(c[2], 0, 255) | 0) + ',' + clamp(a, 0, 1).toFixed(3) + ')';
+    const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    function hueShift(c, deg) {
+      // rotate hue in RGB space (keeps brightness roughly)
+      const a = deg * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a), k = 1 / 3, sq = Math.sqrt(k);
+      const m00 = cs + (1 - cs) * k, m01 = k * (1 - cs) - sq * sn, m02 = k * (1 - cs) + sq * sn;
+      return [
+        c[0] * m00 + c[1] * m01 + c[2] * m02,
+        c[0] * m02 + c[1] * m00 + c[2] * m01,
+        c[0] * m01 + c[1] * m02 + c[2] * m00
+      ].map((v) => clamp(v, 0, 255));
+    }
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    // ---- original sprite designs (9 x 7), two animation frames each ----
+    const SPRITES = [
+      [[
+        '...XXX...', '.XXXXXXX.', 'XX.XXX.XX', 'XXXXXXXXX', '..X...X..', '.X.X.X.X.', 'X.......X'
+      ], [
+        '...XXX...', '.XXXXXXX.', 'XX.XXX.XX', 'XXXXXXXXX', '..X...X..', '..X.X.X..', '.X.....X.'
+      ]],
+      [[
+        'X.......X', '.X.XXX.X.', '..XXXXX..', '.XX.X.XX.', '.XXXXXXX.', '..X.X.X..', '.X.....X.'
+      ], [
+        '.X.....X.', '..XXXXX..', '.XXXXXXX.', 'XXX.X.XXX', '.XXXXXXX.', '.X.X.X.X.', 'X.......X'
+      ]],
+      [[
+        '....X....', '...XXX...', '..XXXXX..', '.XX.X.XX.', 'XXXXXXXXX', '.X.X.X.X.', 'X.X...X.X'
+      ], [
+        '....X....', '...XXX...', '..XXXXX..', '.XX.X.XX.', 'XXXXXXXXX', '..X.X.X..', '.X.X.X.X.'
+      ]]
+    ];
+    const P = 4, SW = 9 * P, SH = 7 * P, PAD = 8;
+    const COLS = 5, ROWS = 3, GX = 52, GY = 34;
+    const ROW_SHIFT = [-55, 0, 55];
+
+    const cfg = { col: [61, 255, 122], speed: 50, flash: true, key: '' };
+    let rowCols = [[61, 255, 122], [61, 255, 122], [61, 255, 122]];
+    const sprites = [];
+
+    function buildSprites() {
+      sprites.length = 0;
+      for (let r = 0; r < ROWS; r++) {
+        const col = rowCols[r];
+        const frames = [];
+        for (let f = 0; f < 2; f++) {
+          const c = document.createElement('canvas');
+          c.width = SW + PAD * 2; c.height = SH + PAD * 2;
+          const x = c.getContext('2d');
+          x.shadowColor = rgba(col, 1);
+          x.shadowBlur = 7;
+          x.fillStyle = rgba(mix(col, [255, 255, 255], 0.2), 1);
+          const rows = SPRITES[r][f];
+          for (let j = 0; j < rows.length; j++) for (let i = 0; i < rows[j].length; i++) {
+            if (rows[j][i] === 'X') x.fillRect(PAD + i * P, PAD + j * P, P, P);
+          }
+          frames.push(c);
+        }
+        sprites.push(frames);
+      }
+    }
+
+    function readProps() {
+      let c = hexRgb(get(() => invaderColor, '#3dff7a'), '#3dff7a');
+      const mx = Math.max(c[0], c[1], c[2]);
+      if (mx < 90) c = mx === 0 ? [90, 90, 90] : c.map((v) => v * 90 / mx);
+      cfg.col = c;
+      cfg.speed = clamp(num(get(() => speed), 50), 0, 100);
+      cfg.flash = bool(get(() => flashOnHit, true), true);
+      const key = c.join(',');
+      if (key !== cfg.key) {
+        cfg.key = key;
+        rowCols = ROW_SHIFT.map((d) => hueShift(c, d));
+        buildSprites();
+      }
+    }
+    function oninvaderColorChanged() { readProps(); }
+    function onspeedChanged() { readProps(); }
+    function onflashOnHitChanged() { readProps(); }
+
+    // ---- game state ----
+    const CANNON = [0, 229, 255];
+    const G = {
+      inv: [], fx: 0, fy: 0, dir: 1, stepT: 0, anim: 0,
+      px: 160, aimErr: 0, pAlive: true, pRespawn: 0, cool: 0, target: 160,
+      shots: [], bombs: [], parts: [], rings: [],
+      ufo: null, ufoT: 8, flash: 0, flashCol: [255, 255, 255], waveT: 0, nextWave: 0, waves: 0
+    };
+    const stars = [];
+    for (let i = 0; i < 40; i++) stars.push([Math.random() * W, Math.random() * H, rand(4, 14)]);
+
+    function newWave() {
+      G.inv = [];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) G.inv.push({ r, c, alive: true });
+      G.fx = 6 + Math.random() * 40; G.fy = 30; G.dir = Math.random() < 0.5 ? 1 : -1;
+      G.stepT = 0; G.shots.length = 0; G.bombs.length = 0; G.waveT = 0; G.nextWave = 0; G.waves++;
+      G.pAlive = true; G.pRespawn = 0;
+    }
+    newWave();
+
+    const invX = (v) => G.fx + v.c * GX;
+    const invY = (v) => G.fy + v.r * GY;
+
+    function boom(x, y, col, n, power) {
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, Math.PI * 2), s = rand(30, 110) * power;
+        G.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(0.4, 0.9), max: 0.9, col: Math.random() < 0.3 ? [255, 255, 255] : col, sz: rand(3, 6) });
+      }
+      G.rings.push({ x, y, r: 4, life: 0.45, col });
+      if (cfg.flash) { G.flash = Math.min(1, G.flash + 0.55 * power); G.flashCol = col; }
+    }
+
+    function step(dt) {
+      G.waveT += dt;
+      const alive = G.inv.filter((v) => v.alive);
+      // wave cleared / restart timers
+      if (G.nextWave > 0) {
+        G.nextWave -= dt;
+        if (G.nextWave <= 0) newWave();
+      } else if (alive.length === 0 || G.waveT > 120) {
+        G.nextWave = 1.4;
+        if (cfg.flash) { G.flash = 1; G.flashCol = [255, 255, 255]; }
+      }
+
+      // formation march: discrete retro steps, faster as the fleet shrinks
+      if (alive.length && G.nextWave <= 0) {
+        G.stepT -= dt;
+        if (G.stepT <= 0) {
+          G.stepT += 0.06 + 0.42 * (alive.length / (ROWS * COLS));
+          G.anim ^= 1;
+          let minX = W, maxX = 0;
+          for (const v of alive) { minX = Math.min(minX, invX(v)); maxX = Math.max(maxX, invX(v) + SW); }
+          if ((G.dir > 0 && maxX + 6 > W - 4) || (G.dir < 0 && minX - 6 < 4)) { G.dir = -G.dir; G.fy += 12; }
+          else G.fx += 7 * G.dir;
+        }
+        // invasion: the fleet reached the cannon line
+        let maxY = 0;
+        for (const v of alive) maxY = Math.max(maxY, invY(v) + SH);
+        if (maxY > 168) {
+          for (const v of alive) { v.alive = false; boom(invX(v) + SW / 2, invY(v) + SH / 2, rowCols[v.r], 6, 0.8); }
+          if (G.pAlive) { boom(G.px, 184, CANNON, 26, 1.6); G.pAlive = false; G.pRespawn = 2; }
+          G.flash = cfg.flash ? 1 : 0; G.flashCol = [255, 40, 40];
+          G.nextWave = 2;
+        }
+        // bombs
+        if (Math.random() < dt * (0.8 + 1.2 * (1 - alive.length / 15))) {
+          const v = alive[(Math.random() * alive.length) | 0];
+          // only the lowest invader in that column drops
+          let low = v;
+          for (const o of alive) if (o.c === v.c && o.r > low.r) low = o;
+          G.bombs.push({ x: invX(low) + SW / 2, y: invY(low) + SH, col: rowCols[low.r], ph: 0 });
+        }
+      }
+
+      // UFO
+      G.ufoT -= dt;
+      if (!G.ufo && G.ufoT <= 0) { const d = Math.random() < 0.5 ? 1 : -1; G.ufo = { x: d > 0 ? -30 : W + 30, d }; }
+      if (G.ufo) { G.ufo.x += G.ufo.d * 60 * dt; if (G.ufo.x < -40 || G.ufo.x > W + 40) { G.ufo = null; G.ufoT = rand(8, 15); } }
+
+      // player AI
+      if (!G.pAlive) {
+        G.pRespawn -= dt;
+        if (G.pRespawn <= 0 && G.nextWave <= 0) { G.pAlive = true; G.px = 160; }
+      } else {
+        let tx = G.target;
+        if (G.ufo && G.ufo.x > 20 && G.ufo.x < W - 20) tx = G.ufo.x + G.ufo.d * 40;
+        else if (alive.length) {
+          // aim at the lowest invader nearest to us
+          let best = null, bs = 1e9;
+          for (const v of alive) { const sc = Math.abs(invX(v) + SW / 2 - G.px) - v.r * 30; if (sc < bs) { bs = sc; best = v; } }
+          tx = invX(best) + SW / 2 + G.dir * 5 + G.aimErr;
+        }
+        // dodge bombs above us
+        for (const b of G.bombs) if (b.y > 120 && Math.abs(b.x - G.px) < 20) tx = G.px + (b.x < G.px ? 40 : -40);
+        tx = clamp(tx, 16, W - 16);
+        G.target = tx;
+        const mv = 120 * dt;
+        G.px += clamp(tx - G.px, -mv, mv);
+        G.cool -= dt;
+        if (G.cool <= 0 && Math.abs(tx - G.px) < 8 && G.shots.length < 1 && G.nextWave <= 0) {
+          G.shots.push({ x: G.px, y: 172 });
+          G.cool = rand(0.45, 1.1); G.aimErr = rand(-22, 22);
+        }
+      }
+
+      // shots
+      for (let i = G.shots.length - 1; i >= 0; i--) {
+        const s = G.shots[i];
+        s.y -= 260 * dt;
+        let hit = false;
+        for (const v of G.inv) {
+          if (!v.alive) continue;
+          const x = invX(v), y = invY(v);
+          if (s.x > x - 1 && s.x < x + SW + 1 && s.y < y + SH && s.y + 12 > y) {
+            v.alive = false; hit = true;
+            boom(x + SW / 2, y + SH / 2, rowCols[v.r], 16, 1);
+            break;
+          }
+        }
+        if (!hit && G.ufo && Math.abs(s.x - G.ufo.x) < 18 && s.y < 16) {
+          hit = true; boom(G.ufo.x, 9, [255, 60, 200], 24, 1.4); G.ufo = null; G.ufoT = rand(8, 15);
+        }
+        if (hit || s.y < -14) G.shots.splice(i, 1);
+      }
+      // bombs
+      for (let i = G.bombs.length - 1; i >= 0; i--) {
+        const b = G.bombs[i];
+        b.y += 95 * dt; b.ph += dt * 12;
+        let gone = b.y > H + 10;
+        if (G.pAlive && b.y > 176 && b.y < 194 && Math.abs(b.x - G.px) < 14) {
+          gone = true; G.pAlive = false; G.pRespawn = 1.6;
+          boom(G.px, 184, CANNON, 26, 1.5);
+        }
+        if (gone) G.bombs.splice(i, 1);
+      }
+      // particles
+      for (let i = G.parts.length - 1; i >= 0; i--) {
+        const p = G.parts[i];
+        p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt; p.vx *= 1 - 1.5 * dt;
+        p.life -= dt;
+        if (p.life <= 0) G.parts.splice(i, 1);
+      }
+      for (let i = G.rings.length - 1; i >= 0; i--) {
+        const r = G.rings[i];
+        r.r += 130 * dt; r.life -= dt;
+        if (r.life <= 0) G.rings.splice(i, 1);
+      }
+      if (G.parts.length > 400) G.parts.splice(0, G.parts.length - 400);
+      for (const s of stars) { s[1] += s[2] * dt; if (s[1] > H) { s[1] = 0; s[0] = Math.random() * W; } }
+    }
+
+    function glowDot(x, y, r, col, a) {
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, rgba(col, a));
+      g.addColorStop(1, rgba(col, 0));
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+
+    function render(realT) {
+      const col = cfg.col;
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const bg = ctx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, rgba(mix(rowCols[0], [0, 0, 0], 0.8), 1));
+      bg.addColorStop(0.55, rgba(mix(col, [0, 0, 0], 0.88), 1));
+      bg.addColorStop(1, rgba(mix(CANNON, [0, 0, 0], 0.8), 1));
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+      for (const s of stars) { ctx.fillStyle = rgba([200, 220, 255], 0.25 + s[2] / 30); ctx.fillRect(s[0], s[1], 2, 2); }
+
+      ctx.globalCompositeOperation = 'lighter';
+      // invaders: soft halo + sprite
+      for (const v of G.inv) {
+        if (!v.alive) continue;
+        const x = invX(v), y = invY(v);
+        glowDot(x + SW / 2, y + SH / 2, 30, rowCols[v.r], 0.28);
+        if (sprites[v.r]) ctx.drawImage(sprites[v.r][G.anim], x - PAD, y - PAD);
+      }
+      // ufo
+      if (G.ufo) {
+        const u = G.ufo, uc = [255, 60, 200];
+        glowDot(u.x, 9, 34, uc, 0.45);
+        ctx.fillStyle = rgba(uc, 1);
+        ctx.beginPath(); ctx.ellipse(u.x, 11, 17, 5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = rgba([255, 200, 245], 1);
+        ctx.beginPath(); ctx.ellipse(u.x, 7, 7, 5, 0, Math.PI, 0); ctx.fill();
+        const blink = (Math.floor(realT * 8) % 3);
+        ctx.fillStyle = '#ffffff';
+        for (let k = -1; k <= 1; k++) if (k + 1 === blink) ctx.fillRect(u.x + k * 9 - 1.5, 10, 3, 3);
+      }
+      // bombs: zigzag glow
+      for (const b of G.bombs) {
+        glowDot(b.x, b.y, 12, b.col, 0.6);
+        ctx.fillStyle = rgba(mix(b.col, [255, 255, 255], 0.5), 1);
+        const o = Math.sin(b.ph) > 0 ? 2 : -2;
+        ctx.fillRect(b.x - 2 + o, b.y - 8, 3, 4);
+        ctx.fillRect(b.x - 2 - o, b.y - 4, 3, 4);
+        ctx.fillRect(b.x - 2 + o, b.y, 3, 4);
+      }
+      // shots
+      for (const s of G.shots) {
+        glowDot(s.x, s.y + 6, 16, CANNON, 0.55);
+        ctx.fillStyle = '#e8ffff';
+        ctx.fillRect(s.x - 2, s.y, 4, 13);
+      }
+      // cannon
+      if (G.pAlive) {
+        const x = G.px;
+        glowDot(x, 186, 34, CANNON, 0.45);
+        ctx.fillStyle = rgba(CANNON, 1);
+        ctx.fillRect(x - 15, 184, 30, 9);
+        ctx.fillRect(x - 10, 179, 20, 6);
+        ctx.fillRect(x - 3, 172, 6, 8);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x - 1.5, 172, 3, 3);
+      }
+      // ground line
+      const gl = ctx.createLinearGradient(0, 190, 0, H);
+      gl.addColorStop(0, rgba(CANNON, 0));
+      gl.addColorStop(0.6, rgba(CANNON, 0.5));
+      gl.addColorStop(1, rgba(CANNON, 0.15));
+      ctx.fillStyle = gl;
+      ctx.fillRect(0, 190, W, 10);
+      // particles + rings
+      for (const p of G.parts) {
+        const a = clamp(p.life / 0.6, 0, 1);
+        ctx.fillStyle = rgba(p.col, a);
+        ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz);
+      }
+      for (const r of G.rings) {
+        const a = clamp(r.life / 0.45, 0, 1);
+        glowDot(r.x, r.y, r.r * 0.7 + 6, [255, 255, 255], 0.5 * a);
+        ctx.strokeStyle = rgba(r.col, a);
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      if (G.flash > 0.01) {
+        ctx.fillStyle = rgba(G.flashCol, G.flash * 0.45);
+        ctx.fillRect(0, 0, W, H);
+      }
+    }
+
+    let last = null, acc = 0, realT = 0;
+    const STEP = 1 / 120;
+    function frame(ts) {
+      requestAnimationFrame(frame);
+      const now = typeof ts === 'number' && isFinite(ts) ? ts : Date.now();
+      const dt = last === null ? 1 / 60 : clamp((now - last) / 1000, 0, 0.1);
+      last = now;
+      readProps();
+      realT += dt;
+      acc += dt * (0.35 + cfg.speed / 100 * 1.65);
+      let n = 0;
+      while (acc >= STEP && n < 60) { step(STEP); acc -= STEP; n++; }
+      if (n >= 60) acc = 0;
+      G.flash = Math.max(0, G.flash - dt * 3.2);
+      render(realT);
+    }
+    readProps();
+    requestAnimationFrame(frame);
+  </script>
+</body>
