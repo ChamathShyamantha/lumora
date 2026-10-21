@@ -314,12 +314,14 @@ function registerIpc(): void {
     power = { ...power, ...cfg }
   })
   ipcMain.handle('app:getAutostart', () => {
+    // Store (MSIX) builds start via the package's StartupTask, toggled in Windows Settings → Apps → Startup.
+    if (process.windowsStore) return { supported: false, store: true, enabled: false, minimized: false }
     const s = app.getLoginItemSettings({ args: ['--hidden'] })
     return { supported: app.isPackaged, enabled: s.openAtLogin, minimized: s.openAtLogin && (s.launchItems?.some((i) => i.args?.includes('--hidden')) ?? true) }
   })
   ipcMain.handle('app:setAutostart', (_e, enabled: boolean, minimized: boolean) => {
     // Only meaningful for the installed app; in development it would register electron.exe.
-    if (!app.isPackaged) return { supported: false, enabled: false, minimized }
+    if (!app.isPackaged || process.windowsStore) return { supported: false, store: !!process.windowsStore, enabled: false, minimized }
     app.setLoginItemSettings({ openAtLogin: false, args: ['--hidden'] })
     app.setLoginItemSettings({ openAtLogin: false })
     app.setLoginItemSettings({ openAtLogin: enabled, args: minimized ? ['--hidden'] : [] })

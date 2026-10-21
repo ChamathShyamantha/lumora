@@ -5,7 +5,7 @@ import { ToggleField } from './controls'
 /** Settings card: lights off on sleep/lock/quit, start with Windows, close to tray. */
 export function PowerSettings() {
   const s = useApp()
-  const [autostart, setAutostart] = useState<{ supported: boolean; enabled: boolean; minimized: boolean } | null>(null)
+  const [autostart, setAutostart] = useState<{ supported: boolean; store?: boolean; enabled: boolean; minimized: boolean } | null>(null)
   useEffect(() => {
     void window.lumora.app.getAutostart().then(setAutostart)
   }, [])
@@ -44,7 +44,13 @@ export function PowerSettings() {
           void window.lumora.app.setCloseToTray(v)
         }}
       />
-      {autostart && (
+      {autostart?.store && (
+        <div className="field">
+          <span className="field-label">Start Lumora with Windows</span>
+          <span className="small faint">Turn it on in Windows Settings → Apps → Startup → Lumora.</span>
+        </div>
+      )}
+      {autostart && !autostart.store && (
         <>
           <ToggleField
             label="Start Lumora with Windows"

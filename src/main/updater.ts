@@ -9,6 +9,7 @@ import electronUpdater from 'electron-updater'
 
 export type UpdateStatus =
   | { state: 'dev' }
+  | { state: 'store' }
   | { state: 'idle' | 'checking' | 'up-to-date'; checkedAt?: number }
   | { state: 'downloading'; version: string; percent: number }
   | { state: 'ready'; version: string }
@@ -16,7 +17,9 @@ export type UpdateStatus =
 
 const { autoUpdater } = electronUpdater
 
-let status: UpdateStatus = { state: app.isPackaged ? 'idle' : 'dev' }
+/** Installed from the Microsoft Store (MSIX): the Store handles updates. */
+const isStore = process.windowsStore === true
+let status: UpdateStatus = { state: isStore ? 'store' : app.isPackaged ? 'idle' : 'dev' }
 let notifyRenderer: (s: UpdateStatus) => void = () => undefined
 let onReadyClick: () => void = () => undefined
 let timer: NodeJS.Timeout | undefined
@@ -33,7 +36,7 @@ export function updateStatus(): UpdateStatus {
 export function initUpdater(opts: { onStatus: (s: UpdateStatus) => void; onNotificationClick: () => void; log: (...a: unknown[]) => void }): void {
   notifyRenderer = opts.onStatus
   onReadyClick = opts.onNotificationClick
-  if (!app.isPackaged) return
+  if (!app.isPackaged || isStore) return
 
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
@@ -62,7 +65,7 @@ export function initUpdater(opts: { onStatus: (s: UpdateStatus) => void; onNotif
 }
 
 export async function checkForUpdates(): Promise<UpdateStatus> {
-  if (!app.isPackaged) return status
+  if (!app.isPackaged || isStore) return status
   if (status.state === 'downloading' || status.state === 'ready') return status
   try {
     await autoUpdater.checkForUpdates()

@@ -37,6 +37,9 @@ export function UpdatesCard() {
     case 'dev':
       text = 'Updates are checked automatically in the installed app (not in development mode).'
       break
+    case 'store':
+      text = 'Installed from the Microsoft Store — updates arrive automatically through the Store.'
+      break
     case 'checking':
       text = 'Checking for updates…'
       break
@@ -78,7 +81,7 @@ export function UpdatesCard() {
         ) : (
           <button
             className="btn"
-            disabled={checking || status?.state === 'dev' || status?.state === 'downloading'}
+            disabled={checking || status?.state === 'dev' || status?.state === 'store' || status?.state === 'downloading'}
             onClick={async () => {
               setChecking(true)
               await window.lumora.updates.check()

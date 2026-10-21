@@ -68,6 +68,7 @@ export interface RunningConflict {
 
 export type UpdateStatus =
   | { state: 'dev' }
+  | { state: 'store' }
   | { state: 'idle' | 'checking' | 'up-to-date'; checkedAt?: number }
   | { state: 'downloading'; version: string; percent: number }
   | { state: 'ready'; version: string }
@@ -135,8 +136,8 @@ declare global {
         onState(cb: (state: { dark: boolean }) => void): () => void
       }
       app: {
-        getAutostart(): Promise<{ supported: boolean; enabled: boolean; minimized: boolean }>
-        setAutostart(enabled: boolean, minimized: boolean): Promise<{ supported: boolean; enabled: boolean; minimized: boolean }>
+        getAutostart(): Promise<{ supported: boolean; store?: boolean; enabled: boolean; minimized: boolean }>
+        setAutostart(enabled: boolean, minimized: boolean): Promise<{ supported: boolean; store?: boolean; enabled: boolean; minimized: boolean }>
         setCloseToTray(value: boolean): Promise<void>
         openExternal(url: string): Promise<void>
       }

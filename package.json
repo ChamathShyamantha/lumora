@@ -12,7 +12,8 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify:effects": "node scripts/verify-effects.mjs",
-    "dist": "electron-vite build && electron-builder --win --publish never"
+    "dist": "electron-vite build && electron-builder --win --publish never",
+    "dist:store": "node scripts/dist-store.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
@@ -90,6 +91,22 @@
       "provider": "github",
       "owner": "ChamathShyamantha",
       "repo": "lumora-releases"
+    },
+    "appx": {
+      "identityName": "43969PsyLabs.LumoraRGB",
+      "publisher": "CN=54502E17-3D28-4C10-89CB-956585C22E75",
+      "publisherDisplayName": "Psy_Labs",
+      "applicationId": "Lumora",
+      "displayName": "Lumora RGB",
+      "backgroundColor": "#07080a",
+      "languages": [
+        "en-US"
+      ],
+      "addAutoLaunchExtension": false,
+      "customExtensionsPath": "build/appx-extensions.xml",
+      "artifactName": "Lumora-Store.${ext}",
+      "minVersion": "10.0.17763.0",
+      "maxVersionTested": "10.0.26100.0"
     }
   }
 }
