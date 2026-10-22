@@ -84,7 +84,17 @@ export class OpenRgbManager {
     const client = this.client
     if (!client) return
     try {
-      const raw = await client.getAllControllerData()
+      // Read devices one by one so a single device the SDK can't parse
+      // doesn't hide all the others.
+      const raw: Awaited<ReturnType<Client['getControllerData']>>[] = []
+      const count = await client.getControllerCount()
+      for (let i = 0; i < count; i++) {
+        try {
+          raw.push(await client.getControllerData(i))
+        } catch (err) {
+          console.warn(`OpenRGB: skipped device ${i}:`, err)
+        }
+      }
       this.devices = raw.map((d) => ({
         id: d.deviceId,
         name: d.name,

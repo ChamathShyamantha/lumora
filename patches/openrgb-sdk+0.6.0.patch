@@ -1,0 +1,31 @@
+diff --git a/node_modules/openrgb-sdk/dist/device.js b/node_modules/openrgb-sdk/dist/device.js
+index 6bbcc92..83366a3 100644
+--- a/node_modules/openrgb-sdk/dist/device.js
++++ b/node_modules/openrgb-sdk/dist/device.js
+@@ -92,7 +92,7 @@ class Device {
+             const flagsArray = ["local", "remote", "virtual"];
+             flagsArray[8] = "resetBeforeUpdate";
+             let flagcheck_str = this.flags.toString(2);
+-            let flagcheck = Array(flagsArray.length - flagcheck_str.length).concat(flagcheck_str.split("")).reverse();
++            let flagcheck = Array(Math.max(0, flagsArray.length - flagcheck_str.length)).concat(flagcheck_str.split("")).reverse();
+             flagcheck.forEach((el, i) => {
+                 if (el == "1")
+                     this.flagList.push(flagsArray[i]);
+@@ -135,7 +135,7 @@ function readModes(buffer, modeCount, offset, protocolVersion) {
+         let flagList = [];
+         const flags = ["speed", "directionLR", "directionUD", "directionHV", "brightness", "perLedColor", "modeSpecificColor", "randomColor", "manualSave", "automaticSave"];
+         let flagcheck_str = modeFlags.toString(2);
+-        let flagcheck = Array(flags.length - flagcheck_str.length).concat(flagcheck_str.split("")).reverse();
++        let flagcheck = Array(Math.max(0, flags.length - flagcheck_str.length)).concat(flagcheck_str.split("")).reverse();
+         flagcheck.forEach((el, i) => {
+             if (el == "1")
+                 flagList.push(flags[i]);
+@@ -247,7 +247,7 @@ function readZones(buffer, zoneCount, offset, protocolVersion) {
+             flagList = [];
+             const flags = ["resizeEffectsOnly"];
+             let flagcheck_str = zoneFlags.toString(2);
+-            let flagcheck = Array(flags.length - flagcheck_str.length).concat(flagcheck_str.split("")).reverse();
++            let flagcheck = Array(Math.max(0, flags.length - flagcheck_str.length)).concat(flagcheck_str.split("")).reverse();
+             flagcheck.forEach((el, i) => {
+                 if (el == "1")
+                     flagList.push(flags[i]);
