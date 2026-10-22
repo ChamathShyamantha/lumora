@@ -1,7 +1,7 @@
 // ─── Edit these to update the site ─────────────────────────────────────────
 window.LUMORA_SITE = {
-  version: '0.1.0',
-  installerSizeMB: 109,
+  version: '0.2.1',
+  installerSizeMB: 111,
 
   // Installers live in the PUBLIC releases repo; "latest/download" always
   // points at the newest release, so this never needs changing.
